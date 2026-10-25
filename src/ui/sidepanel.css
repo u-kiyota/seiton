@@ -154,3 +154,5 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
   .split .col + .col { border-left: none; border-top: 1px solid var(--border); }
   .ws-edit { grid-template-columns: 1fr; }
 }
+
+.badge.hotkey { font-family: ui-monospace, Consolas, monospace; min-width: 1.4em; text-align: center; flex: none; }

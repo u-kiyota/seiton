@@ -7,7 +7,10 @@ import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt } from './api.js
 const $ = (id) => document.getElementById(id);
 const COLORS = Object.keys(COLOR_HEX);
 
+// 対象ウィンドウ（パネルを呼び出した通常ウィンドウ）。切替・URL を開く先はここ。パネル自身のウィンドウではない
 let windowId;
+// パネル自身のポップアップウィンドウ。タブとして開かれた場合（旧版の名残など）は null で、自動では閉じない
+let selfWindowId = null;
 let data = { state: null, bindings: {} };
 let selectedId = null;
 let editingId = null;
@@ -17,6 +20,46 @@ let detailSeq = 0;
 let detailTimer = 0;
 let bmKey = '';
 let bmData;
+
+// ---- パネルの開閉: 一時的なポップアップウィンドウとして、移動・Esc・フォーカス喪失で閉じる ----
+
+let moving = 0; // 実行中の「移動」操作の数。完了を待ってから閉じる
+let closeWhenIdle = false;
+
+function closePanel() {
+  if (selfWindowId == null) return;
+  if (moving) { closeWhenIdle = true; return; }
+  chrome.windows.remove(selfWindowId).catch(() => {});
+}
+
+/**
+ * 移動を伴う操作。fn の完了（切替の await を含む）を待ってから、fn が返したウィンドウを前面にしてパネルを閉じる。
+ * fn が null / undefined を返したらフォーカスは動かさない。失敗したらパネルは開いたまま（呼び出し側の attempt でエラー表示）
+ */
+async function moveAway(fn) {
+  moving++;
+  try {
+    const dest = await fn();
+    if (dest != null) await chrome.windows.update(dest, { focused: true }).catch(() => {});
+    closeWhenIdle = true;
+  } finally {
+    moving--;
+    if (!moving && closeWhenIdle) closePanel();
+  }
+}
+
+/** URL の ?windowId= から対象ウィンドウを決める。無い・閉じられていれば最後にフォーカスした通常ウィンドウ */
+async function resolveTargetWindow() {
+  const raw = new URLSearchParams(location.search).get('windowId');
+  const v = raw === null ? NaN : Number(raw);
+  if (Number.isInteger(v)) {
+    try {
+      const w = await chrome.windows.get(v);
+      if (w.type === 'normal') return w.id;
+    } catch { /* 閉じられている */ }
+  }
+  return (await chrome.windows.getLastFocused({ windowTypes: ['normal'] })).id;
+}
 
 function hostOf(url) {
   try { return new URL(url).host; } catch { return ''; }
@@ -116,9 +159,18 @@ function selectWorkspace(id) {
   attempt(refreshDetail);
 }
 
+/** 対象ウィンドウをそのワークスペースに切り替える（別ウィンドウで開いていればそちらへ）。完了後にパネルを閉じる */
 function switchHere(id) {
-  if (data.bindings[windowId] === id) return;
-  attempt(() => call('switchWorkspace', { windowId, workspaceId: id }));
+  if (data.bindings[windowId] === id) return undefined;
+  return attempt(() => moveAway(async () => {
+    const res = await call('switchWorkspace', { windowId, workspaceId: id });
+    return res?.windowId ?? windowId;
+  }));
+}
+
+/** 新しいウィンドウで開く（既に開いていればそのウィンドウへ）。完了後にパネルを閉じる */
+function openNewWindow(id) {
+  return attempt(() => moveAway(async () => (await call('openInNewWindow', { workspaceId: id }))?.windowId));
 }
 
 /** 一覧の行をクリック: 選択して、このウィンドウをそのワークスペースに切り替える（別ウィンドウで開いていればそちらへ） */
@@ -132,21 +184,25 @@ async function openSingle(url) {
   return openUrlIn(url, selectedId);
 }
 
-/** URL を 1 件開く。wsId のワークスペースが別ウィンドウで開いていればそこで、そうでなければこのウィンドウで */
+/** URL を 1 件開く。wsId のワークスペースが別ウィンドウで開いていればそこで、そうでなければ対象ウィンドウで。開いたらパネルを閉じる */
 async function openUrlIn(url, wsId) {
   const openWin = wsId ? windowOf(wsId) : null;
   const wid = openWin ?? windowId;
-  const tabs = await chrome.tabs.query({ windowId: wid });
-  const want = normalizeUrlForMatch(url);
-  const existing = tabs.find((t) => normalizeUrlForMatch(tabUrl(t)) === want);
-  if (existing) await chrome.tabs.update(existing.id, { active: true });
-  else await chrome.tabs.create({ windowId: wid, url, active: true });
-  if (wid !== windowId) await chrome.windows.update(wid, { focused: true });
+  await moveAway(async () => {
+    const tabs = await chrome.tabs.query({ windowId: wid });
+    const want = normalizeUrlForMatch(url);
+    const existing = tabs.find((t) => normalizeUrlForMatch(tabUrl(t)) === want);
+    if (existing) await chrome.tabs.update(existing.id, { active: true });
+    else await chrome.tabs.create({ windowId: wid, url, active: true });
+    return wid;
+  });
 }
 
 async function focusTab(tab) {
-  await chrome.tabs.update(tab.id, { active: true });
-  if (tab.windowId !== windowId) await chrome.windows.update(tab.windowId, { focused: true });
+  await moveAway(async () => {
+    await chrome.tabs.update(tab.id, { active: true });
+    return tab.windowId;
+  });
 }
 
 function renderDetailHead() {
@@ -179,7 +235,7 @@ function renderDetailHead() {
       }, openIn != null ? 'そのウィンドウへ' : 'このウィンドウで開く'),
       h('button', {
         class: 'icon', type: 'button', title: '新しいウィンドウで開く',
-        onclick: () => attempt(() => call('openInNewWindow', { workspaceId: ws.id })),
+        onclick: () => openNewWindow(ws.id),
       }, '⧉'),
       h('button', {
         class: 'icon', type: 'button', title: '編集',
@@ -597,7 +653,7 @@ $('createForm').addEventListener('submit', (e) => {
   const icon = createIcon;
   const keep = !data.bindings[windowId] && $('createKeep').checked;
   $('createDialog').close();
-  attempt(async () => {
+  const create = async () => {
     const { workspaceId } = await call('createWorkspace', keep
       ? { name, sessionId, icon, ...folderOpts, fromWindowId: windowId }
       : { name, sessionId, icon, ...folderOpts, switchTo: true, windowId });
@@ -606,7 +662,10 @@ $('createForm').addEventListener('submit', (e) => {
     folders = null;
     bmKey = '';
     toast(keep ? `「${name}」として保存しました` : `「${name}」を作成しました`);
-  });
+    return windowId;
+  };
+  // 今のタブを引き継ぐだけなら移動しないのでパネルは開いたまま。新しいワークスペースへ切り替えるときは切替後に閉じる
+  attempt(() => (keep ? create() : moveAway(create)));
 });
 
 // ---- モーダル: セッション管理 ----
@@ -625,7 +684,7 @@ function renderSessionDialog() {
         `${users.length} WS`),
       h('button', {
         type: 'button', disabled: !users.length, title: 'このセッションを使う全ワークスペースをそれぞれ別ウィンドウで開く',
-        onclick: () => attempt(() => call('openSessionWindows', { sessionId: id })),
+        onclick: () => attempt(() => moveAway(() => call('openSessionWindows', { sessionId: id }))),
       }, '全て開く'),
       confirmButton('削除', '本当に削除？', () => attempt(async () => {
         await call('deleteSession', { id });
@@ -730,8 +789,12 @@ $('discard').addEventListener('click', () => attempt(async () => {
   const n = await call('discardInactive', { windowId });
   toast(`${n} 個のタブを休止しました`);
 }));
-$('options').addEventListener('click', () => chrome.runtime.openOptionsPage());
-$('guide').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('src/ui/guide.html') }));
+$('options').addEventListener('click', () => attempt(() => moveAway(() => chrome.runtime.openOptionsPage())));
+// パネルはポップアップウィンドウなので、windowId を指定して対象ウィンドウのタブとして開く
+$('guide').addEventListener('click', () => attempt(() => moveAway(async () => {
+  await chrome.tabs.create({ windowId, url: chrome.runtime.getURL('src/ui/guide.html') });
+  return windowId;
+})));
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if ((area === 'local' && changes.state) || (area === 'session' && changes.bindings)) attempt(load);
@@ -827,11 +890,11 @@ async function runSearch() {
       icon: wsIcon(w),
       title: w.name,
       sub: here ? 'このウィンドウ' : `${sessionName(w.sessionId)} · ${w.tabs.length} タブ`,
-      run: (shift) => attempt(async () => {
-        if (shift) await call('openInNewWindow', { workspaceId: w.id });
-        else { selectWorkspace(w.id); switchHere(w.id); }
+      run: async (shift) => {
         clearSearch();
-      }),
+        if (shift) await openNewWindow(w.id);
+        else { selectWorkspace(w.id); await switchHere(w.id); }
+      },
     }));
   }
 
@@ -908,10 +971,10 @@ $('search').addEventListener('keydown', (e) => {
   if (e.key === 'ArrowDown') { e.preventDefault(); searchSelect(searchSel + 1); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); searchSelect(searchSel - 1); }
   else if (e.key === 'Enter') { e.preventDefault(); searchItems[searchSel]?.run(e.shiftKey); }
-  else if (e.key === 'Escape') {
+  else if (e.key === 'Escape' && $('search').value) {
+    // 入力があれば消すだけ。空のときは下の Esc ハンドラでパネルを閉じる
     e.preventDefault();
-    if ($('search').value) clearSearch();
-    else $('search').blur();
+    clearSearch();
   }
 });
 // 結果の外側をクリックしたら閉じる（入力欄に戻れば再表示）
@@ -928,12 +991,34 @@ document.addEventListener('keydown', (e) => {
   $('search').focus();
   $('search').select();
 });
-// パネルのタブが前面に戻ってきたとき、他に入力中でなければ検索ボックスへ
+// パネルが表示されたとき、他に入力中でなければ検索ボックスへ
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   const a = document.activeElement;
   if (!a || a === document.body) $('search').focus();
 });
+// Esc: 作成 / セッションのダイアログ → ✎ の編集 → 検索結果 の順に閉じ、何も開いていなければパネルを閉じる
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return;
+  if (document.querySelector('dialog[open]')) return; // ダイアログは Esc で閉じる（ブラウザ既定の動作）
+  e.preventDefault();
+  if (editingId) {
+    editingId = null;
+    // 入力欄にフォーカスがあると描画が後回しになるので外す
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    render();
+    return;
+  }
+  if (!$('searchResults').hidden) { closeSearch(); return; }
+  closePanel();
+});
+// フォーカスを失ったら閉じる（モーダル的な挙動）。一瞬だけ外れることがあるので少し待ってから確かめる
+window.addEventListener('blur', (e) => {
+  if (e.target !== window) return;
+  setTimeout(() => { if (!document.hasFocus()) closePanel(); }, 150);
+});
+// 対象ウィンドウが閉じられたらパネルも閉じる
+chrome.windows.onRemoved.addListener((id) => { if (id === windowId) closePanel(); });
 
 chrome.bookmarks.onCreated.addListener(() => { allBm = null; });
 chrome.bookmarks.onRemoved.addListener(() => { allBm = null; });
@@ -941,7 +1026,9 @@ chrome.bookmarks.onChanged.addListener(() => { allBm = null; });
 chrome.bookmarks.onMoved.addListener(() => { allBm = null; });
 
 (async () => {
-  windowId = (await chrome.windows.getCurrent()).id;
+  const self = await chrome.windows.getCurrent();
+  if (self.type === 'popup') selfWindowId = self.id;
+  windowId = await resolveTargetWindow();
   await attempt(load);
   $('search').focus();
 })();

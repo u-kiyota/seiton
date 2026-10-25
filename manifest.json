@@ -42,7 +42,7 @@
     },
     "open-side-panel": {
       "suggested_key": { "default": "Alt+Shift+K" },
-      "description": "ワークスペース管理パネルをタブで開く"
+      "description": "ワークスペース管理パネルを開く / 閉じる（一時的なウィンドウ）"
     },
     "save-bookmark": {
       "suggested_key": { "default": "Alt+Shift+D" },

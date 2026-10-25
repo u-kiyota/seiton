@@ -1,7 +1,6 @@
 // クイックパレット: 現在のワークスペースのタブ / 接続フォルダのブックマーク / ワークスペース切替
 import { call, h, faviconUrl, wsIcon, attempt, toast } from './api.js';
 import { matchesQuery, normalizeUrlForMatch } from '../lib/core.js';
-import { openManager } from '../lib/manager.js';
 
 const $ = (id) => document.getElementById(id);
 let windowId;
@@ -169,7 +168,8 @@ $('saveTab').addEventListener('click', () => attempt(async () => {
   render();
 }));
 $('openPanel').addEventListener('click', async () => {
-  try { await openManager(windowId); } catch (e) { console.warn(e); }
+  // パネルを開くとこのパレットはフォーカスを失って閉じるので、開く処理はサービスワーカーに任せる
+  try { await call('openManager', { windowId }); } catch (e) { console.warn(e); }
   window.close();
 });
 

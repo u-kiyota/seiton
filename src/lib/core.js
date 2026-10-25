@@ -108,11 +108,30 @@ export function tabUrl(tab) {
   return tab.url || tab.pendingUrl || '';
 }
 
-/** 管理パネル自身のタブか（切替時に閉じず、タブ一覧にも出さない） */
+/** 管理パネルのページか（パネル用ポップアップウィンドウの判定や、タブ一覧・履歴からの除外に使う） */
 export function isManagerUrl(url) {
   return typeof url === 'string'
     && url.startsWith('chrome-extension://')
     && /\/src\/ui\/sidepanel\.html(?:$|[?#])/.test(url);
+}
+
+/**
+ * 管理パネル用ポップアップウィンドウの位置とサイズ。対象ウィンドウ（win: left/top/width/height）の
+ * 約 ratio 倍の大きさで、その中央に重ねる。はみ出さないよう対象ウィンドウの範囲内にクランプする。
+ * bounds が取れない場合は null（呼び出し側は位置・サイズを Chrome に任せる）
+ */
+export function managerPopupBounds(win, { ratio = 0.85, minWidth = 720, minHeight = 480 } = {}) {
+  const { left, top, width, height } = win || {};
+  if (![left, top, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return null;
+  const size = (full, min) => Math.min(full, Math.max(Math.min(min, full), Math.round(full * ratio)));
+  const w = size(width, minWidth);
+  const h = size(height, minHeight);
+  return {
+    left: Math.round(left + (width - w) / 2),
+    top: Math.round(top + (height - h) / 2),
+    width: Math.round(w),
+    height: Math.round(h),
+  };
 }
 
 /** 保存・復元の対象にする URL か */

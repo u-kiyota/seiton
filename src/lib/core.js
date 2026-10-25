@@ -13,6 +13,8 @@ export const DEFAULT_SETTINGS = {
   bookmarkRootName: 'Workspaces',
   // 最後に使ってから days 日以上経ったタブを自動で閉じる（既定 OFF。ワークスペースごとに ws.autoClose で上書き可。凍結: 必ず新しいオブジェクトで置き換える）
   autoClose: Object.freeze({ enabled: false, days: 7 }),
+  // ウィンドウの左端に、今のワークスペースを示す専用タブ（色付きのタブグループ）を置く
+  workspaceTab: true,
 };
 
 export const COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
@@ -123,6 +125,16 @@ export function isManagerUrl(url) {
   return typeof url === 'string'
     && url.startsWith('chrome-extension://')
     && /\/src\/ui\/sidepanel\.html(?:$|[?#])/.test(url);
+}
+
+/** ワークスペースタブ（ウィンドウ左端に置く、今のワークスペースを示す拡張ページ）の拡張内パス */
+export const WORKSPACE_TAB_PAGE = 'src/ui/wstab.html';
+
+/** ワークスペースタブのページか（タブ一覧・保存・照合からの除外、切替時に閉じないタブの判定に使う） */
+export function isWorkspaceTabUrl(url) {
+  return typeof url === 'string'
+    && url.startsWith('chrome-extension://')
+    && /\/src\/ui\/wstab\.html(?:$|[?#])/.test(url);
 }
 
 /**
@@ -412,6 +424,68 @@ export function indicatorSignature(rawState) {
   return JSON.stringify([ws, ss]);
 }
 
+// ---- ワークスペースタブ（ウィンドウ左端の専用タブ＋色付きタブグループ） ----
+
+/** 保存状態の settings.workspaceTab（未設定なら既定値）。storage.onChanged の新旧比較用 */
+export function workspaceTabEnabled(rawState) {
+  const v = rawState?.settings?.workspaceTab;
+  return typeof v === 'boolean' ? v : DEFAULT_SETTINGS.workspaceTab;
+}
+
+/** ワークスペースタブのグループのタイトルと色。タイトルは「絵文字 名前」（絵文字が無ければ名前のみ）、色は tabGroups の色名（不明なら grey） */
+export function workspaceTabGroupProps(ws) {
+  const name = typeof ws?.name === 'string' ? ws.name.trim() : '';
+  const icon = normalizeIcon(ws?.icon);
+  return {
+    title: [icon, name].filter(Boolean).join(' '),
+    color: COLORS.includes(ws?.color) ? ws.color : 'grey',
+  };
+}
+
+/** ワークスペースタブを置くべき index（固定タブの直後 = 固定タブの数。固定タブはグループに入れられないため） */
+export function workspaceTabIndex(tabs) {
+  return (tabs || []).filter((t) => t && t.pinned).length;
+}
+
+/**
+ * ウィンドウのタブからワークスペースタブを探し、残す 1 枚と閉じる残りを決める。
+ * 残すのはグループに入っているもの → index が小さいもの の順（決定的にするため）。
+ * 戻り値: { keep: Tab | null, close: Tab[] }
+ */
+export function pickWorkspaceTab(tabs) {
+  const cands = (tabs || []).filter((t) => t && isWorkspaceTabUrl(tabUrl(t)));
+  if (!cands.length) return { keep: null, close: [] };
+  const ungrouped = (t) => (t.groupId !== undefined && t.groupId !== -1 ? 0 : 1);
+  const sorted = [...cands].sort((a, b) => ungrouped(a) - ungrouped(b) || (a.index ?? 0) - (b.index ?? 0));
+  return { keep: sorted[0], close: sorted.slice(1) };
+}
+
+/**
+ * ワークスペースタブが入っているグループを「自分のもの」として扱うか。
+ * ワークスペースタブだけのグループ、前回このウィンドウで使ったグループ（knownGroupId）、
+ * 期待するタイトルのグループなら自分のもの（他のタブが紛れ込んだだけ）。それ以外はユーザーのグループに入れられたとみなす。
+ * members: そのグループに属するタブ
+ */
+export function isOwnWorkspaceGroup({ group, members, wsTabId, knownGroupId, expectedTitle }) {
+  if (!group) return false;
+  const others = (members || []).filter((t) => t.id !== wsTabId);
+  if (!others.length) return true;
+  if (knownGroupId != null && group.id === knownGroupId) return true;
+  return typeof expectedTitle === 'string' && expectedTitle !== '' && group.title === expectedTitle;
+}
+
+/**
+ * ワークスペースタブのグループで、変える必要のあるプロパティだけを返す（変化が無ければ null。自分の更新イベントで無限ループしないため）。
+ * collapse: true なら折りたたむ（グループを作ったとき・ワークスペースが変わったときだけ。ユーザーが開いたのを毎回閉じ直さない）
+ */
+export function workspaceGroupPatch(group, props, { collapse = false } = {}) {
+  const patch = {};
+  if ((group?.title ?? '') !== props.title) patch.title = props.title;
+  if (group?.color !== props.color) patch.color = props.color;
+  if (collapse && !group?.collapsed) patch.collapsed = true;
+  return Object.keys(patch).length ? patch : null;
+}
+
 // ---- 管理パネル: 番号キーで切替 ----
 
 /** 並び順の index（0 始まり）に対応する番号キー: 0〜8 → '1'〜'9'、9 → '0'、それ以外は null */
@@ -495,7 +569,7 @@ export function effectiveLastAccessed(tab, inherited) {
  * 最後にアクティブだった時刻（effectiveLastAccessed）から days 日以上経ったものが対象。
  * inherited: { [tabId]: { saved, restoredAt } }（復元したタブが引き継ぐ最終アクセス時刻）
  * アクティブ・固定・音声再生中・拡張自身のページ・最終アクセス時刻が無いタブは除外。
- * ウィンドウが消えないよう、全タブが対象になる場合は最後に使ったタブを 1 つ残す
+ * ウィンドウが消えないよう、全タブ（ワークスペースタブを除く）が対象になる場合は最後に使ったタブを 1 つ残す
  */
 export function tabsToAutoClose(tabs, { now, days, inherited = {} }) {
   const d = parseAutoCloseDays(days);
@@ -508,7 +582,9 @@ export function tabsToAutoClose(tabs, { now, days, inherited = {} }) {
     accessed.set(t, at);
     return at !== null && at <= threshold;
   });
-  if (out.length && out.length >= tabs.length) {
+  // ワークスペースタブ（左端のラベル）は数えない。普通のタブが 1 枚も残らないと保存内容を更新できないため
+  const regular = tabs.filter((t) => t && !isWorkspaceTabUrl(tabUrl(t))).length;
+  if (out.length && out.length >= regular) {
     const keep = out.reduce((a, b) => (accessed.get(b) > accessed.get(a) ? b : a));
     return out.filter((t) => t !== keep);
   }

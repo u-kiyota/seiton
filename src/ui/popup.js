@@ -43,10 +43,11 @@ async function openUrl(url, inCurrentTab) {
   const existing = palette.tabs.find((t) => normalizeUrlForMatch(t.url) === normalizeUrlForMatch(url));
   if (existing && !inCurrentTab) {
     await chrome.tabs.update(existing.id, { active: true });
-  } else if (inCurrentTab) {
+  } else if (inCurrentTab && palette.tabs.some((t) => t.active)) {
     const active = palette.tabs.find((t) => t.active);
     await chrome.tabs.update(active.id, { url });
   } else {
+    // 前面がワークスペースタブ（一覧から除外している）のときは、そのページを置き換えず新しいタブで開く
     await chrome.tabs.create({ windowId, url });
   }
   window.close();

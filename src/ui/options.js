@@ -5,6 +5,7 @@ const $ = (id) => document.getElementById(id);
 async function load() {
   const { state } = await call('getState');
   const s = state.settings;
+  $('workspaceTab').checked = s.workspaceTab;
   $('lazyRestore').checked = s.lazyRestore;
   $('autoDiscardMinutes').value = s.autoDiscardMinutes;
   $('routeBookmarks').checked = s.routeBookmarks;
@@ -25,6 +26,7 @@ function save(patch) {
   });
 }
 
+$('workspaceTab').addEventListener('change', (e) => save({ workspaceTab: e.target.checked }));
 $('lazyRestore').addEventListener('change', (e) => save({ lazyRestore: e.target.checked }));
 $('autoDiscardMinutes').addEventListener('change', (e) => save({ autoDiscardMinutes: Number(e.target.value) || 0 }));
 $('routeBookmarks').addEventListener('change', (e) => save({ routeBookmarks: e.target.checked }));

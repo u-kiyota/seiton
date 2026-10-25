@@ -1,6 +1,9 @@
 // サービスワーカー: Chrome のイベントを受けて状態を更新する唯一の書き手。
 // UI（管理パネル / ポップアップ / オプション）は runtime.sendMessage 経由でここに依頼する。
-import { shouldRouteBookmark, neighborWorkspace, tabUrl, normalizeState, isManagerUrl, normalizeAutoClose } from './lib/core.js';
+import {
+  shouldRouteBookmark, neighborWorkspace, tabUrl, normalizeState, isManagerUrl, normalizeAutoClose,
+  isWorkspaceTabUrl, workspaceTabEnabled,
+} from './lib/core.js';
 import { openManager, toggleManager } from './lib/manager.js';
 import { serialize, loadState, saveState, mutate, getBindings } from './lib/store.js';
 import {
@@ -22,6 +25,9 @@ import { isBookmarkableUrl, findBookmarkByUrl, changedBindingWindows, indicatorS
 import {
   refreshWindowIndicator, refreshAllIndicators, refreshTabIndicator, scheduleTabIndicator,
 } from './lib/indicator.js';
+import {
+  ensureAllWorkspaceTabs, scheduleWorkspaceTab, scheduleAllWorkspaceTabs, forgetWorkspaceTabWindow,
+} from './lib/wstab.js';
 
 // ---- タブ変更 → 所属ワークスペースへのスナップショット（デバウンス） ----
 
@@ -37,9 +43,21 @@ function scheduleSnapshot(windowId) {
   }, 400));
 }
 
+/**
+ * タブの変化でワークスペースタブを点検する（閉じられた・グループから外された・動かされた・別ウィンドウへ移された など）。
+ * onRemoved には URL が無いので、どのタブかは問わず点検する（冪等で、正しければ何もしない）。
+ * 切替中は大量のタブ操作が起きるので見送る（切替の最後に bindings が変わり、そちらで適用される）
+ */
+function checkWorkspaceTab(windowId) {
+  if (windowId === undefined || isSwitching(windowId)) return;
+  scheduleWorkspaceTab(windowId);
+}
+
 chrome.tabs.onCreated.addListener((tab) => {
   scheduleSnapshot(tab.windowId);
   refreshWindowIndicator(tab.windowId);
+  // ワークスペースタブのグループの隣で開いたタブがグループに入ってしまった場合などに外す
+  if (tab.groupId !== undefined && tab.groupId !== -1) checkWorkspaceTab(tab.windowId);
 });
 chrome.tabs.onUpdated.addListener((id, info, tab) => {
   // ページ遷移でタブ単位のアイコン / タイトルが消えることがあるので、その都度「今のワークスペース」を再適用する
@@ -48,20 +66,33 @@ chrome.tabs.onUpdated.addListener((id, info, tab) => {
   if ('url' in info || 'pinned' in info || 'groupId' in info || info.status === 'complete') {
     scheduleSnapshot(tab.windowId);
   }
+  // グループの出入り・固定、グループ内のタブの遷移（ワークスペースタブが別ページへ移動した等）でワークスペースタブを点検する
+  if ('groupId' in info || 'pinned' in info || ('url' in info && (isWorkspaceTabUrl(tabUrl(tab)) || tab.groupId !== -1))) {
+    checkWorkspaceTab(tab.windowId);
+  }
   if (info.url || info.status === 'complete' || info.audible === false) onTabMaybeDiscardable(id).catch(() => {});
 });
-chrome.tabs.onMoved.addListener((_id, info) => scheduleSnapshot(info.windowId));
+chrome.tabs.onMoved.addListener((_id, info) => {
+  scheduleSnapshot(info.windowId);
+  checkWorkspaceTab(info.windowId);
+});
 chrome.tabs.onAttached.addListener((_id, info) => {
   scheduleSnapshot(info.newWindowId);
   refreshWindowIndicator(info.newWindowId);
+  checkWorkspaceTab(info.newWindowId);
 });
-chrome.tabs.onDetached.addListener((_id, info) => scheduleSnapshot(info.oldWindowId));
+chrome.tabs.onDetached.addListener((_id, info) => {
+  scheduleSnapshot(info.oldWindowId);
+  checkWorkspaceTab(info.oldWindowId);
+});
 chrome.tabs.onRemoved.addListener((id, info) => {
   forgetDiscard(id).catch(() => {});
   forgetInheritedAccess(id).catch(() => {});
   // ウィンドウごと閉じる時はスナップショットを更新しない（ワークスペースが空で上書きされるのを防ぐ）
   if (info.isWindowClosing) return;
   scheduleSnapshot(info.windowId);
+  // ワークスペースタブが閉じられたら作り直す（割り当て済みのウィンドウのみ。ensure 側で判定）
+  checkWorkspaceTab(info.windowId);
 });
 chrome.tabs.onActivated.addListener(() => { flushDiscardQueue().catch(() => {}); });
 chrome.tabs.onReplaced.addListener(async (addedTabId) => {
@@ -76,6 +107,7 @@ chrome.tabGroups.onUpdated.addListener((group) => scheduleSnapshot(group.windowI
 chrome.windows.onRemoved.addListener((windowId) => {
   clearTimeout(snapshotTimers.get(windowId));
   snapshotTimers.delete(windowId);
+  forgetWorkspaceTabWindow(windowId);
   serialize(() => onWindowRemoved(windowId));
 });
 chrome.windows.onFocusChanged.addListener((windowId) => {
@@ -96,17 +128,26 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'session' && changes.bindings) {
     for (const wid of changedBindingWindows(changes.bindings.oldValue, changes.bindings.newValue)) {
       refreshWindowIndicator(wid);
+      // ワークスペースタブ: 割り当て済みなら置く / グループのタイトル・色を新しいワークスペースにする。
+      // 未割り当てになったなら閉じる（prune）。どちらにするかは実行時点の bindings で決める
+      scheduleWorkspaceTab(wid, { prune: true });
     }
   }
-  // state はタブの変化のたびに保存されるので、名前・色・アイコン・セッション名が変わったときだけ全体を再適用する
-  if (area === 'local' && changes.state
-    && indicatorSignature(changes.state.oldValue) !== indicatorSignature(changes.state.newValue)) {
-    scheduleAllIndicators();
+  if (area === 'local' && changes.state) {
+    const { oldValue, newValue } = changes.state;
+    // state はタブの変化のたびに保存されるので、名前・色・アイコン・セッション名が変わったときだけ全体を再適用する
+    const labelChanged = indicatorSignature(oldValue) !== indicatorSignature(newValue);
+    if (labelChanged) scheduleAllIndicators();
+    // ワークスペースタブ: グループのタイトル・色の更新、設定の ON / OFF（OFF なら全ウィンドウで閉じる）
+    if (labelChanged || workspaceTabEnabled(oldValue) !== workspaceTabEnabled(newValue)) scheduleAllWorkspaceTabs();
   }
 });
 
-// サービスワーカーの起動（再起動・再読み込み）時にも一度適用する
+// サービスワーカーの起動（再起動・再読み込み）時にも一度適用する。
+// ワークスペースタブは未割り当てウィンドウのものを閉じない（ブラウザ起動直後は bindings が空で、
+// Chrome が復元したワークスペースタブを対応付け前に閉じてしまうため。対応付け後に prune 付きで適用する）
 refreshAllIndicators();
+serialize(() => ensureAllWorkspaceTabs({ prune: false })).catch(() => {});
 
 // ---- 起動・インストール ----
 
@@ -119,7 +160,12 @@ chrome.runtime.onStartup.addListener(() => {
     await configureAutoClose(state);
     await flushDiscardQueue();
     await reconcileWindows({ restoreLastIfBlank: true });
-  }).finally(() => refreshAllIndicators());
+  }).finally(() => {
+    refreshAllIndicators();
+    // 対応付けが済んだので、割り当て済みのウィンドウにはワークスペースタブを置き（復元されたものは再利用）、
+    // 対応付けられなかったウィンドウに復元された古いワークスペースタブは閉じる
+    scheduleAllWorkspaceTabs({ prune: true });
+  });
 });
 
 chrome.runtime.onInstalled.addListener((details) => {
@@ -136,7 +182,10 @@ chrome.runtime.onInstalled.addListener((details) => {
     await flushDiscardQueue();
     // 拡張の再読み込み・更新時は storage.session が消えるので、ウィンドウとの対応付けをやり直す
     await reconcileWindows({ restoreLastIfBlank: false });
-  }).finally(() => refreshAllIndicators());
+  }).finally(() => {
+    refreshAllIndicators();
+    scheduleAllWorkspaceTabs({ prune: true });
+  });
 });
 
 // ---- ブックマーク ----
@@ -264,7 +313,7 @@ async function getPalette(windowId) {
   const wsId = bindings[windowId];
   const ws = wsId ? state.workspaces[wsId] : null;
   const tabs = (await chrome.tabs.query({ windowId }))
-    .filter((t) => !isManagerUrl(tabUrl(t)))
+    .filter((t) => !isManagerUrl(tabUrl(t)) && !isWorkspaceTabUrl(tabUrl(t)))
     .map((t) => ({
       id: t.id, title: t.title, url: tabUrl(t), active: t.active, discarded: t.discarded, pinned: t.pinned,
     }));
@@ -345,6 +394,7 @@ const mutating = {
       const prevAutoClose = state.settings.autoClose;
       Object.assign(state.settings, patch);
       state.settings.autoDiscardMinutes = Math.max(0, Number(state.settings.autoDiscardMinutes) || 0);
+      state.settings.workspaceTab = state.settings.workspaceTab !== false;
       // 一部の項目だけの patch も受け付け、不正な日数（NaN・負など）は今の値を保つ
       if (patch && 'autoClose' in patch) {
         state.settings.autoClose = normalizeAutoClose({ ...prevAutoClose, ...patch.autoClose }, prevAutoClose);
@@ -361,6 +411,7 @@ const mutating = {
     await configureAutoDiscard(state.settings);
     await configureAutoClose(state);
     await reconcileWindows({ restoreLastIfBlank: false });
+    await ensureAllWorkspaceTabs({ prune: true });
   },
 };
 

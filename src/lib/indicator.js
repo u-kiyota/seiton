@@ -4,6 +4,7 @@
 // 状態は書き換えない（読み取りのみ）ので serialize() の外から呼んでよい。
 import { indicatorLabel } from './core.js';
 import { loadState, getBindings } from './store.js';
+import { drawIndicatorIcon } from './draw.js';
 
 const SIZES = [16, 32];
 const WINDOW_DEBOUNCE_MS = 100;
@@ -26,28 +27,6 @@ function defaultTitle() {
   return chrome.runtime.getManifest().action?.default_title || 'seiton';
 }
 
-function drawIcon(label, size) {
-  const canvas = new OffscreenCanvas(size, size);
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('OffscreenCanvas の 2d context が使えません');
-  ctx.clearRect(0, 0, size, size);
-  ctx.fillStyle = label.color;
-  ctx.beginPath();
-  ctx.roundRect(0, 0, size, size, size * 0.22);
-  ctx.fill();
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  if (label.emoji) {
-    ctx.font = `${Math.round(size * 0.72)}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
-    ctx.fillStyle = '#000';
-  } else {
-    ctx.font = `bold ${Math.round(size * 0.68)}px system-ui, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif`;
-    ctx.fillStyle = '#fff';
-  }
-  ctx.fillText(label.text, size / 2, size / 2 + size * 0.04);
-  return ctx.getImageData(0, 0, size, size);
-}
-
 /** label のアイコン画像（16 / 32）。描けない環境では null（呼び出し側は既定アイコンにする）。成功時だけキャッシュする */
 function iconImages(label) {
   const key = `${label.emoji ? 'e' : 't'}|${label.color}|${label.text}`;
@@ -55,7 +34,7 @@ function iconImages(label) {
   try {
     if (typeof OffscreenCanvas === 'undefined') return null;
     const images = {};
-    for (const size of SIZES) images[size] = drawIcon(label, size);
+    for (const size of SIZES) images[size] = drawIndicatorIcon(label, size);
     if (imageCache.size > 200) imageCache.clear();
     imageCache.set(key, images);
     return images;

@@ -1,7 +1,7 @@
 // ワークスペースの切替・スナップショット・復元。
 // ここの関数は serialize() の中から呼ばれる前提（内部で serialize を呼ばない＝デッドロック防止）。
 import {
-  uid, COLORS, normalizeIcon, snapshotTabs, tabUrl, isBlankUrl, isRestorableUrl,
+  uid, COLORS, normalizeIcon, snapshotTabs, tabUrl, isBlankUrl, isRestorableUrl, isWorkspaceTabUrl,
   matchWindowsToWorkspaces, missingTabs, planRestore, workspacesUsingSession, normalizeAutoCloseOverride,
 } from './core.js';
 import { loadState, saveState, mutate, getBindings, setBinding, clearBindings, windowForWorkspace } from './store.js';
@@ -51,6 +51,9 @@ export async function snapshotWindow(windowId) {
   const ws = state.workspaces[wsId];
   if (!ws) return;
   const snap = snapshotTabs(data.tabs, data.groupsById, await getInheritedAccess());
+  // 保存できるタブが 1 枚も無い（ワークスペースタブなど拡張ページだけが残った）ときは上書きしない。
+  // ワークスペースタブがあると、タブを 1 枚ずつ閉じていってもウィンドウが閉じず isWindowClosing にならないため
+  if (!snap.tabs.length) return;
   // 変化が無ければ書き込まない（storage.onChanged → UI 再描画の連鎖を防ぐ）
   if (JSON.stringify(snap.tabs) === JSON.stringify(ws.tabs) && JSON.stringify(snap.groups) === JSON.stringify(ws.groups)) return;
   ws.tabs = snap.tabs;
@@ -183,8 +186,12 @@ export async function switchWorkspace(windowId, targetId) {
   await snapshotWindow(windowId);
   switchingWindows.add(windowId);
   try {
-    const oldTabs = await chrome.tabs.query({ windowId });
-    const anchorId = oldTabs.find((t) => t.active)?.id ?? oldTabs[0]?.id ?? null;
+    const current = await chrome.tabs.query({ windowId });
+    // ワークスペースタブは閉じずに残す（切替後にグループのタイトル / 色だけが新しいワークスペースのものになる）
+    const oldTabs = current.filter((t) => !isWorkspaceTabUrl(tabUrl(t)));
+    // アンカーは今前面のタブ（ワークスペースタブのページから切り替えたならそれ）。前面が無ければ普通のタブを優先する
+    // （折りたたんだワークスペースタブを前面に固定するとグループが開いてしまうため）
+    const anchorId = current.find((t) => t.active)?.id ?? oldTabs[0]?.id ?? current[0]?.id ?? null;
     const fresh = await loadState();
     // 先に新しいタブを作り、最後に古いタブを消す（最後のタブを消すとウィンドウが閉じるため）
     const { created } = await restoreTabs(windowId, fresh.workspaces[targetId], fresh.settings, anchorId);
@@ -423,8 +430,10 @@ export async function reconcileWindows({ restoreLastIfBlank }) {
   const candidates = Object.values(state.workspaces)
     .filter((ws) => !boundWs.has(ws.id))
     .map((ws) => ({ workspaceId: ws.id, urls: ws.tabs.map((t) => t.url) }));
+  // Chrome が復元したワークスペースタブは保存 URL に含まれないので、照合から外す（重なり率が不当に下がらないように）
+  const urlsOf = (w) => w.tabs.map(tabUrl).filter((u) => !isWorkspaceTabUrl(u));
   const matched = matchWindowsToWorkspaces(
-    unbound.map((w) => ({ windowId: w.id, urls: w.tabs.map(tabUrl) })),
+    unbound.map((w) => ({ windowId: w.id, urls: urlsOf(w) })),
     candidates,
   );
   for (const [wid, m] of Object.entries(matched)) bindings[wid] = m.workspaceId;
@@ -459,7 +468,7 @@ export async function reconcileWindows({ restoreLastIfBlank }) {
 
   // タブが復元されなかった（空タブだけの）ウィンドウには、最後に使っていたワークスペースを開く
   if (restoreLastIfBlank && state.lastFocusedWorkspaceId && !Object.values(bindings).includes(state.lastFocusedWorkspaceId)) {
-    const blankWin = wins.find((w) => !bindings[w.id] && w.tabs.every((t) => isBlankUrl(tabUrl(t))));
+    const blankWin = wins.find((w) => !bindings[w.id] && urlsOf(w).every(isBlankUrl));
     if (blankWin) await switchWorkspace(blankWin.id, state.lastFocusedWorkspaceId);
   }
   for (const wid of Object.keys(bindings)) await snapshotWindow(Number(wid));

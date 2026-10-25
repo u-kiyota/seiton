@@ -50,9 +50,15 @@
     <label><input id="autoCloseEnabled" type="checkbox"> 長期間使っていないタブを自動で閉じる</label>
   </div>
   <div class="field">
-    <label>最後に使ってから <input id="autoCloseDays" type="number" min="0.01" step="any"> 日</label>
+    <label>最後に使ってから <input id="autoCloseValue" type="number" min="1" step="1" style="width: 5em">
+      <select id="autoCloseUnit">
+        <option value="minutes">分</option>
+        <option value="hours">時間</option>
+        <option value="days">日</option>
+      </select>
+    </label>
     <div class="desc">
-      15 分ごとに確認し、最後にアクティブにしてからこの日数が経ったタブを閉じます（小数も可。例: 0.5 = 12 時間）。閉じたタブは Chrome の履歴から開き直せます。
+      15 分ごとに確認し、最後にアクティブにしてからこの期間が経ったタブを閉じます（最短 15 分）。閉じたタブは Chrome の履歴から開き直せます。
       固定タブ・音声再生中のタブ・各ウィンドウのアクティブなタブ・seiton 自身のページは対象外で、ウィンドウの最後の 1 枚は閉じません。
       閉じたタブはワークスペースの保存内容からも外れます。ワークスペースごとに、管理パネルの ✎ で上書きできます。
     </div>

@@ -1,4 +1,5 @@
 import { call, h, toast, attempt } from './api.js';
+import { autoCloseDaysFrom, autoCloseDuration } from '../lib/core.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -11,7 +12,9 @@ async function load() {
   $('routeBookmarks').checked = s.routeBookmarks;
   $('bookmarkRootName').value = s.bookmarkRootName;
   $('autoCloseEnabled').checked = s.autoClose.enabled;
-  $('autoCloseDays').value = s.autoClose.days;
+  const dur = autoCloseDuration(s.autoClose.days);
+  $('autoCloseValue').value = dur.value;
+  $('autoCloseUnit').value = dur.unit;
 
   const commands = await chrome.commands.getAll();
   $('commands').replaceChildren(...commands.map((c) => h('li', {},
@@ -32,15 +35,17 @@ $('autoDiscardMinutes').addEventListener('change', (e) => save({ autoDiscardMinu
 $('routeBookmarks').addEventListener('change', (e) => save({ routeBookmarks: e.target.checked }));
 $('bookmarkRootName').addEventListener('change', (e) => save({ bookmarkRootName: e.target.value.trim() || 'Workspaces' }));
 $('autoCloseEnabled').addEventListener('change', (e) => save({ autoClose: { enabled: e.target.checked } }));
-$('autoCloseDays').addEventListener('change', (e) => {
-  const days = Number(e.target.value);
-  if (e.target.value === '' || !Number.isFinite(days) || days < 0.01) {
-    toast('日数は 0.01 以上の数値で入力してください', true);
+function saveAutoCloseDuration() {
+  const days = autoCloseDaysFrom($('autoCloseValue').value, $('autoCloseUnit').value);
+  if (days === null) {
+    toast('期間は 15 分以上で入力してください', true);
     attempt(load);
     return;
   }
   save({ autoClose: { days } });
-});
+}
+$('autoCloseValue').addEventListener('change', saveAutoCloseDuration);
+$('autoCloseUnit').addEventListener('change', saveAutoCloseDuration);
 
 $('openGuide').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('src/ui/guide.html') }));
 $('openShortcuts').addEventListener('click', () => chrome.tabs.create({ url: 'chrome://extensions/shortcuts' }));

@@ -513,6 +513,32 @@ export function parseAutoCloseDays(v) {
   return Number.isFinite(n) && n >= AUTO_CLOSE_MIN_DAYS ? n : null;
 }
 
+/** 期間の単位 → 日数への係数（UI の「分 / 時間 / 日」入力用。内部は常に日数で持つ） */
+export const AUTO_CLOSE_UNITS = { minutes: 1 / (24 * 60), hours: 1 / 24, days: 1 };
+export const AUTO_CLOSE_UNIT_LABELS = { minutes: '分', hours: '時間', days: '日' };
+
+/** 値と単位（minutes / hours / days）→ 日数。無効（単位不明・NaN・下限未満）なら null */
+export function autoCloseDaysFrom(value, unit) {
+  const f = AUTO_CLOSE_UNITS[unit];
+  if (!f || value === '' || value === null || value === undefined) return null;
+  return parseAutoCloseDays(Number(value) * f);
+}
+
+/** 日数 → 表示用の { value, unit }。割り切れる最も大きい単位（日 → 時間 → 分）で表す */
+export function autoCloseDuration(days) {
+  const d = parseAutoCloseDays(days) ?? DEFAULT_SETTINGS.autoClose.days;
+  const whole = (x) => Math.abs(x - Math.round(x)) < 1e-6;
+  if (whole(d)) return { value: Math.round(d), unit: 'days' };
+  if (whole(d * 24)) return { value: Math.round(d * 24), unit: 'hours' };
+  return { value: Math.round(d * 24 * 60), unit: 'minutes' };
+}
+
+/** 日数 → 「3 日」「12 時間」「30 分」 */
+export function formatAutoCloseDuration(days) {
+  const { value, unit } = autoCloseDuration(days);
+  return `${value} ${AUTO_CLOSE_UNIT_LABELS[unit]}`;
+}
+
 /** { enabled, days } に正規化した新しいオブジェクトを返す。不正な項目は fallback の値を使う */
 export function normalizeAutoClose(v, fallback = DEFAULT_SETTINGS.autoClose) {
   const fb = {

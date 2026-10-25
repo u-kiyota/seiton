@@ -109,6 +109,14 @@ npm run check     # 静的チェック
 
 コードを変更したら `chrome://extensions` で拡張の「再読み込み」ボタンを押す。サービスワーカーのログは同画面の「Service Worker」リンクから DevTools で確認できる。
 
+### リリース手順
+
+1. `manifest.json` と `package.json` の version を上げてコミットする
+2. `git tag v<version>` → `git push origin v<version>`
+3. GitHub Actions がテストと静的チェックを実行し、配布用 zip（`seiton-v<version>.zip`）を作って Release に添付する（タグと manifest の version が違うと失敗する）
+
+ローカルで zip を確認したいときは `npm run zip`（`dist/` に出力）。Release の zip を使うときは、展開して `chrome://extensions` の「パッケージ化されていない拡張機能を読み込む」でそのフォルダを選ぶ。
+
 ## 手動テスト チェックリスト
 
 自動テストは Chrome API に依存しない部分のみのため、以下は実ブラウザで確認する。

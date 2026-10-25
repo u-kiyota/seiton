@@ -229,6 +229,8 @@ const readOnly = {
   getState: async () => ({ state: await loadState(), bindings: await getBindings() }),
   getPalette: ({ windowId }) => getPalette(windowId),
   listFolders: () => listAllFolders(),
+  // 管理パネルの開閉は状態を書き換えないので直列キューを通さない（切替中でもすぐ開く。開閉自体は manager.js 内で直列化）
+  openManager: ({ windowId }) => openManager(windowId),
   listFolderBookmarks: ({ folderId }) => listFolderBookmarks(folderId),
   // 全ワークスペースの接続フォルダのブックマーク（管理パネルの横断検索用）
   listWorkspaceBookmarks: async () => {
@@ -286,7 +288,6 @@ const mutating = {
   linkFolder: ({ workspaceId, folderId }) =>
     updateWorkspace(workspaceId, { bookmarkFolderId: folderId || null, bookmarkFolderManaged: false }),
   saveCurrentTab: ({ windowId }) => saveCurrentTab(windowId),
-  openManager: ({ windowId }) => openManager(windowId),
   discardInactive: ({ windowId }) => discardInactiveInWindow(windowId),
   updateSettings: async ({ patch }) => {
     const settings = await mutate((state) => {

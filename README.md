@@ -94,7 +94,6 @@ src/
   lib/store.js         storage.local（永続状態）/ storage.session（ウィンドウ⇔ワークスペースの対応）と直列実行キュー
   lib/workspace.js     切替・スナップショット・復元・セッション操作・起動時の対応付け
   lib/bookmarks.js     ブックマークフォルダ操作
-  lib/autoclose.js     タブの自動クローズ（アラームの設定と実行）
   lib/memory.js        discard 関連
   lib/indicator.js     ツールバーのアイコン / タイトルをウィンドウごとの今のワークスペースに差し替える（全タブにタブ単位で適用）
   lib/manager.js       管理パネルのポップアップウィンドウを開く / 閉じる（同時に 1 つだけ。対象ウィンドウは ?windowId= で渡す）

@@ -1,0 +1,16 @@
+body { width: 440px; max-height: 580px; display: flex; flex-direction: column; }
+.top { padding: 10px 10px 6px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--border); }
+img.logo { width: 28px; height: 28px; border-radius: 7px; flex: none; }
+#q { width: 100%; padding: 6px 10px; }
+#results { overflow-y: auto; flex: 1; padding: 4px 0; min-height: 80px; max-height: 470px; }
+.section { padding: 6px 12px 2px; font-size: 11px; font-weight: 600; color: var(--fg-sub); display: flex; gap: 6px; }
+.item { display: flex; align-items: center; gap: 8px; padding: 4px 12px; cursor: pointer; }
+.item.sel { background: var(--bg-sel); }
+.item .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .sub { color: var(--fg-sub); font-size: 11px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item.discarded .title { opacity: .6; }
+.item .close { visibility: hidden; }
+.item:hover .close, .item.sel .close { visibility: visible; }
+.empty { padding: 4px 12px 6px; color: var(--fg-sub); font-size: 12px; }
+.hint { padding: 4px 10px 6px; border-top: 1px solid var(--border); }
+.item.here .title { opacity: .7; }

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>seiton 設定</title>
+  <link rel="icon" href="../../icons/icon32.png">
+  <link rel="stylesheet" href="common.css">
+  <style>
+    body { max-width: 720px; margin: 24px auto; padding: 0 16px; }
+    .settings-brand { display: flex; align-items: center; gap: 14px; }
+    .settings-brand img { width: 64px; height: 64px; border-radius: 14px; display: block; }
+    h1 { font-size: 20px; margin: 0; }
+    h2 { font-size: 15px; margin-top: 28px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+    .field { margin: 12px 0; }
+    .field label { display: flex; align-items: center; gap: 8px; }
+    .desc { margin: 2px 0 0 24px; color: var(--fg-sub); font-size: 12px; }
+    input[type=number] { width: 80px; }
+    code { background: var(--bg-sub); padding: 1px 4px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="settings-brand">
+    <img src="../../icons/logo.png" alt="" width="64" height="64">
+    <h1>seiton 設定</h1>
+    <span class="grow"></span>
+    <button id="openGuide">使い方を見る</button>
+  </div>
+
+  <h2>メモリ</h2>
+  <div class="field">
+    <label><input id="lazyRestore" type="checkbox"> ワークスペースを開く時、アクティブ以外のタブを読み込まない（遅延読み込み）</label>
+    <div class="desc">タブはタブバーに表示されたまま、クリックした時点で読み込まれます。推奨: ON</div>
+  </div>
+  <div class="field">
+    <label>非アクティブな状態が <input id="autoDiscardMinutes" type="number" min="0" step="5"> 分続いたタブを自動で休止（0 = 無効）</label>
+    <div class="desc">
+      通常は Chrome 標準の「メモリセーバー」（<a href="#" id="openPerf">chrome://settings/performance</a>）に任せるのがおすすめです。
+      メモリセーバーはメモリ逼迫度やタブの状態（フォーム入力中・音声再生中など）を考慮して休止するため、こちらは「確実に N 分で休止させたい」場合だけ使ってください。固定タブと音声再生中のタブは対象外です。
+    </div>
+  </div>
+
+  <h2>ブックマーク</h2>
+  <div class="field">
+    <label><input id="routeBookmarks" type="checkbox"> Ctrl+D / ☆ で追加したブックマークを、現在のワークスペースのフォルダへ自動で移動する</label>
+    <div class="desc">現在のウィンドウのアクティブなタブと同じ URL のブックマークだけが対象です（同期やインポートで作られたものは移動しません）。</div>
+  </div>
+  <div class="field">
+    <label>ワークスペース用フォルダの親フォルダ名（「その他のブックマーク」直下） <input id="bookmarkRootName" type="text"></label>
+  </div>
+
+  <h2>ショートカット</h2>
+  <ul id="commands"></ul>
+  <button id="openShortcuts">ショートカットを変更（chrome://extensions/shortcuts）</button>
+
+  <h2>バックアップ</h2>
+  <div class="row">
+    <button id="export">エクスポート（JSON）</button>
+    <label class="row"><button id="importBtn">インポート</button><input id="importFile" type="file" accept="application/json" hidden></label>
+  </div>
+  <p class="muted small">インポートすると現在のワークスペース・セッション設定はすべて置き換わります（ブックマークそのものは含まれません）。</p>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

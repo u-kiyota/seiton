@@ -1,12 +1,12 @@
 // サービスワーカー: Chrome のイベントを受けて状態を更新する唯一の書き手。
 // UI（管理パネル / ポップアップ / オプション）は runtime.sendMessage 経由でここに依頼する。
 import { shouldRouteBookmark, neighborWorkspace, tabUrl, normalizeState, isManagerUrl } from './lib/core.js';
-import { openManager } from './lib/manager.js';
+import { openManager, toggleManager } from './lib/manager.js';
 import { serialize, loadState, saveState, mutate, getBindings } from './lib/store.js';
 import {
   snapshotWindow, switchWorkspace, openInNewWindow, createWorkspace, updateWorkspace, reorderWorkspace,
   deleteWorkspace, detachWindow, createSession, renameSession, deleteSession,
-  openSessionWindows, reconcileWindows, onWindowFocused, onWindowRemoved, isSwitching,
+  openSessionWindows, reconcileWindows, onWindowFocused, onWindowRemoved, isSwitching, isNormalWindow,
 } from './lib/workspace.js';
 import {
   ownCreatedIds, setImporting, isImporting, createFolderForWorkspace, listAllFolders,
@@ -145,13 +145,20 @@ chrome.bookmarks.onRemoved.addListener((_id, info) => {
 
 // ---- ショートカット ----
 
+/** 操作対象の通常ウィンドウ。管理パネルのポップアップなどから押された場合は、最後にフォーカスした通常ウィンドウ */
+async function normalWindowId(windowId) {
+  if (windowId !== undefined && await isNormalWindow(windowId)) return windowId;
+  return (await chrome.windows.getLastFocused({ windowTypes: ['normal'] })).id;
+}
+
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command === 'open-side-panel') {
-    openManager(tab?.windowId).catch((e) => console.warn(e));
+    // トグル: 管理パネルが開いていれば閉じ、無ければこのウィンドウ用に開く
+    toggleManager(tab?.windowId).catch((e) => console.warn(e));
     return;
   }
   if (command === 'save-bookmark') {
-    serialize(() => saveCurrentTab(tab?.windowId)).catch((e) => {
+    serialize(async () => saveCurrentTab(await normalWindowId(tab?.windowId))).catch((e) => {
       // フォルダ未接続などで保存できなかったことをバッジで知らせる（理由はツールチップに表示）
       console.warn(e);
       flashBadge(tab?.id, '!', e.message);
@@ -160,7 +167,7 @@ chrome.commands.onCommand.addListener((command, tab) => {
   }
   if (command === 'next-workspace' || command === 'prev-workspace') {
     serialize(async () => {
-      const windowId = tab?.windowId ?? (await chrome.windows.getLastFocused()).id;
+      const windowId = await normalWindowId(tab?.windowId);
       const state = await loadState();
       const current = (await getBindings())[windowId];
       const target = neighborWorkspace(state.workspaceOrder, current, command === 'next-workspace' ? 1 : -1);
@@ -222,6 +229,8 @@ const readOnly = {
   getState: async () => ({ state: await loadState(), bindings: await getBindings() }),
   getPalette: ({ windowId }) => getPalette(windowId),
   listFolders: () => listAllFolders(),
+  // 管理パネルの開閉は状態を書き換えないので直列キューを通さない（切替中でもすぐ開く。開閉自体は manager.js 内で直列化）
+  openManager: ({ windowId }) => openManager(windowId),
   listFolderBookmarks: ({ folderId }) => listFolderBookmarks(folderId),
   // 全ワークスペースの接続フォルダのブックマーク（管理パネルの横断検索用）
   listWorkspaceBookmarks: async () => {
@@ -279,7 +288,6 @@ const mutating = {
   linkFolder: ({ workspaceId, folderId }) =>
     updateWorkspace(workspaceId, { bookmarkFolderId: folderId || null, bookmarkFolderManaged: false }),
   saveCurrentTab: ({ windowId }) => saveCurrentTab(windowId),
-  openManager: ({ windowId }) => openManager(windowId),
   discardInactive: ({ windowId }) => discardInactiveInWindow(windowId),
   updateSettings: async ({ patch }) => {
     const settings = await mutate((state) => {

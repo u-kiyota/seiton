@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   snapshotTabs, urlOverlap, matchWindowsToWorkspaces, missingTabs, shouldRouteBookmark,
-  neighborWorkspace, normalizeState, defaultState, matchesQuery, planRestore, isManagerUrl,
+  neighborWorkspace, normalizeState, defaultState, matchesQuery, planRestore, isManagerUrl, managerPopupBounds,
   workspacesUsingSession, normalizeIcon, ICONS, ICON_GROUPS,
   TAB_DRAG_TYPE, isBookmarkableUrl, firstUriFromList, parseTabDragData, findBookmarkByUrl,
 } from '../src/lib/core.js';
@@ -217,4 +217,33 @@ test('findBookmarkByUrl: フラグメント・末尾スラッシュを無視し�
   assert.equal(findBookmarkByUrl(items, 'https://c.example/'), null);
   assert.equal(findBookmarkByUrl(items, ''), null);
   assert.equal(findBookmarkByUrl(null, 'https://a.example/x'), null);
+});
+
+test('managerPopupBounds: 対象ウィンドウの約 85% で中央に重ねる', () => {
+  const b = managerPopupBounds({ left: 100, top: 50, width: 1600, height: 1000 });
+  assert.deepEqual(b, { left: 220, top: 125, width: 1360, height: 850 });
+  // 中心が一致する
+  assert.equal(b.left + b.width / 2, 100 + 1600 / 2);
+  assert.equal(b.top + b.height / 2, 50 + 1000 / 2);
+});
+
+test('managerPopupBounds: 小さいウィンドウでは最小サイズを確保しつつ対象ウィンドウからはみ出さない', () => {
+  const b = managerPopupBounds({ left: 0, top: 0, width: 800, height: 500 });
+  assert.deepEqual(b, { left: 40, top: 10, width: 720, height: 480 });
+  const tiny = managerPopupBounds({ left: 10, top: 20, width: 500, height: 300 });
+  assert.deepEqual(tiny, { left: 10, top: 20, width: 500, height: 300 });
+});
+
+test('managerPopupBounds: 負の座標（左側のモニター・最大化）でも整数で中央に置く', () => {
+  const b = managerPopupBounds({ left: -1928, top: -8, width: 1936, height: 1056 });
+  for (const v of Object.values(b)) assert.equal(Number.isInteger(v), true);
+  assert.ok(b.left >= -1928 && b.left + b.width <= -1928 + 1936);
+  assert.ok(b.top >= -8 && b.top + b.height <= -8 + 1056);
+});
+
+test('managerPopupBounds: bounds が無い・不正なら null', () => {
+  assert.equal(managerPopupBounds(null), null);
+  assert.equal(managerPopupBounds({ left: 0, top: 0 }), null);
+  assert.equal(managerPopupBounds({ left: 0, top: 0, width: 0, height: 100 }), null);
+  assert.equal(managerPopupBounds({ left: NaN, top: 0, width: 100, height: 100 }), null);
 });

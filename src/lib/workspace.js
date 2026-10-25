@@ -1,7 +1,7 @@
 // ワークスペースの切替・スナップショット・復元。
 // ここの関数は serialize() の中から呼ばれる前提（内部で serialize を呼ばない＝デッドロック防止）。
 import {
-  uid, COLORS, normalizeIcon, snapshotTabs, tabUrl, isBlankUrl, isRestorableUrl, isManagerUrl,
+  uid, COLORS, normalizeIcon, snapshotTabs, tabUrl, isBlankUrl, isRestorableUrl,
   matchWindowsToWorkspaces, missingTabs, planRestore, workspacesUsingSession,
 } from './core.js';
 import { loadState, saveState, mutate, getBindings, setBinding, clearBindings, windowForWorkspace } from './store.js';
@@ -73,17 +73,12 @@ async function createInactiveTab(windowId, props, anchorId) {
   return tab;
 }
 
-function isManagerTab(tab) {
-  return isManagerUrl(tabUrl(tab));
-}
-
 /**
  * 保存されたタブをウィンドウに作る。前面になるのは planRestore が選んだ 1 件だけ。
  * anchorId を渡すと、作成中はそのタブを前面に固定する（呼び出し側が後で閉じる）。
  * 渡さなければ空白タブを一時的に前面へ置き、最後に閉じる。
- * reveal が false のときは、選んだタブを読み込むだけで前面には出さない（管理パネルを開いたまま切り替えるため）。
  */
-async function restoreTabs(windowId, ws, settings, anchorId = null, { reveal = true } = {}) {
+async function restoreTabs(windowId, ws, settings, anchorId = null) {
   const plan = planRestore(ws.tabs);
   let ownAnchor = null;
   if (anchorId == null) {
@@ -137,8 +132,7 @@ async function restoreTabs(windowId, ws, settings, anchorId = null, { reveal = t
   }
   activeTabId ??= lastId;
   await cancelDiscard(activeTabId);
-  if (reveal) await chrome.tabs.update(activeTabId, { active: true }).catch(() => {});
-  else await holdAnchor(windowId, anchorId);
+  await chrome.tabs.update(activeTabId, { active: true }).catch(() => {});
   if (ownAnchor != null && ownAnchor !== activeTabId) await chrome.tabs.remove(ownAnchor).catch(() => {});
   return { activeTabId, created };
 }
@@ -157,6 +151,8 @@ function rememberOpened(state, windowWsId) {
 export async function switchWorkspace(windowId, targetId) {
   const state = await loadState();
   if (!state.workspaces[targetId]) throw new Error('ワークスペースが見つかりません');
+  // 管理パネルのポップアップなど、通常ウィンドウ以外をワークスペースにしない
+  if (!(await isNormalWindow(windowId))) throw new Error('切り替え先のウィンドウが見つかりません');
   let bindings = await getBindings();
   if (bindings[windowId] === targetId) return { windowId };
 
@@ -185,21 +181,14 @@ export async function switchWorkspace(windowId, targetId) {
   switchingWindows.add(windowId);
   try {
     const oldTabs = await chrome.tabs.query({ windowId });
-    // 管理パネルを開いたまま切り替えるときは、パネルを前面に固定したまま新しいタブを後ろに作る
-    const managerWasFront = oldTabs.some((t) => t.active && isManagerTab(t));
     const anchorId = oldTabs.find((t) => t.active)?.id ?? oldTabs[0]?.id ?? null;
     const fresh = await loadState();
     // 先に新しいタブを作り、最後に古いタブを消す（最後のタブを消すとウィンドウが閉じるため）
-    const { created } = await restoreTabs(windowId, fresh.workspaces[targetId], fresh.settings, anchorId, { reveal: !managerWasFront });
-    const oldIds = oldTabs.filter((t) => !isManagerTab(t)).map((t) => t.id);
+    const { created } = await restoreTabs(windowId, fresh.workspaces[targetId], fresh.settings, anchorId);
+    const oldIds = oldTabs.map((t) => t.id);
     // 空のワークスペースでは、閉じる前に新しいタブを 1 枚足す
-    if (!created) await chrome.tabs.create({ windowId, active: !managerWasFront });
+    if (!created) await chrome.tabs.create({ windowId, active: true });
     if (oldIds.length) await chrome.tabs.remove(oldIds).catch(() => {});
-    const manager = (await chrome.tabs.query({ windowId })).find(isManagerTab);
-    if (manager) {
-      const rest = await chrome.tabs.query({ windowId });
-      await chrome.tabs.move(manager.id, { index: rest.length - 1 }).catch(() => {});
-    }
     await setBinding(windowId, targetId);
     rememberOpened(fresh, targetId);
     await saveState(fresh);

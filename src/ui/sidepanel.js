@@ -1,5 +1,5 @@
 import {
-  tabUrl, normalizeUrlForMatch, isManagerUrl, workspacesUsingSession, matchesQuery, ICON_GROUPS, ICONS, normalizeIcon,
+  tabUrl, normalizeUrlForMatch, isManagerUrl, isWorkspaceTabUrl, workspacesUsingSession, matchesQuery, ICON_GROUPS, ICONS, normalizeIcon,
   TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl,
 } from '../lib/core.js';
 import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt } from './api.js';
@@ -561,7 +561,9 @@ function renderTabs() {
     return;
   }
 
-  const tabs = [...(view.tabs || [])].filter((t) => !isManagerUrl(tabUrl(t))).sort((a, b) => a.index - b.index);
+  const tabs = [...(view.tabs || [])]
+    .filter((t) => !isManagerUrl(tabUrl(t)) && !isWorkspaceTabUrl(tabUrl(t)))
+    .sort((a, b) => a.index - b.index);
   const groupById = Object.fromEntries((view.groups || []).map((g) => [g.id, g]));
   $('tabTitle').textContent = `開いているタブ（${tabs.length}）`;
   if (!tabs.length) {
@@ -931,7 +933,7 @@ async function runSearch() {
   const histList = [];
   for (const hItem of hist.sort((a, b) => (b.lastVisitTime || 0) - (a.lastVisitTime || 0))) {
     const key = normalizeUrlForMatch(hItem.url);
-    if (!hItem.url || seen.has(key) || isManagerUrl(hItem.url) || hItem.url.startsWith('chrome-extension://')) continue;
+    if (!hItem.url || seen.has(key) || isManagerUrl(hItem.url) || isWorkspaceTabUrl(hItem.url) || hItem.url.startsWith('chrome-extension://')) continue;
     seen.add(key);
     histList.push(hItem);
     if (histList.length >= 20) break;

@@ -14,6 +14,7 @@ const refs = [
   manifest.options_page,
   'src/ui/sidepanel.html',
   'src/ui/guide.html',
+  'src/ui/wstab.html', // ワークスペースタブ（lib/wstab.js が開く）
 ];
 for (const r of refs) if (!existsSync(join(root, r))) fail(`manifest が参照するファイルがありません: ${r}`);
 const iconRefs = [

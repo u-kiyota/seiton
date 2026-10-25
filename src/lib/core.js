@@ -11,6 +11,8 @@ export const DEFAULT_SETTINGS = {
   routeBookmarks: true,
   // ワークスペース用ブックマークフォルダを作る親フォルダ名
   bookmarkRootName: 'Workspaces',
+  // ウィンドウの左端に、今のワークスペースを示す専用タブ（色付きのタブグループ）を置く
+  workspaceTab: true,
 };
 
 export const COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
@@ -119,6 +121,16 @@ export function isManagerUrl(url) {
   return typeof url === 'string'
     && url.startsWith('chrome-extension://')
     && /\/src\/ui\/sidepanel\.html(?:$|[?#])/.test(url);
+}
+
+/** ワークスペースタブ（ウィンドウ左端に置く、今のワークスペースを示す拡張ページ）の拡張内パス */
+export const WORKSPACE_TAB_PAGE = 'src/ui/wstab.html';
+
+/** ワークスペースタブのページか（タブ一覧・保存・照合からの除外、切替時に閉じないタブの判定に使う） */
+export function isWorkspaceTabUrl(url) {
+  return typeof url === 'string'
+    && url.startsWith('chrome-extension://')
+    && /\/src\/ui\/wstab\.html(?:$|[?#])/.test(url);
 }
 
 /**
@@ -401,4 +413,66 @@ export function indicatorSignature(rawState) {
   });
   const ss = Object.keys(sessions).sort().map((id) => [id, sessions[id]?.name ?? '']);
   return JSON.stringify([ws, ss]);
+}
+
+// ---- ワークスペースタブ（ウィンドウ左端の専用タブ＋色付きタブグループ） ----
+
+/** 保存状態の settings.workspaceTab（未設定なら既定値）。storage.onChanged の新旧比較用 */
+export function workspaceTabEnabled(rawState) {
+  const v = rawState?.settings?.workspaceTab;
+  return typeof v === 'boolean' ? v : DEFAULT_SETTINGS.workspaceTab;
+}
+
+/** ワークスペースタブのグループのタイトルと色。タイトルは「絵文字 名前」（絵文字が無ければ名前のみ）、色は tabGroups の色名（不明なら grey） */
+export function workspaceTabGroupProps(ws) {
+  const name = typeof ws?.name === 'string' ? ws.name.trim() : '';
+  const icon = normalizeIcon(ws?.icon);
+  return {
+    title: [icon, name].filter(Boolean).join(' '),
+    color: COLORS.includes(ws?.color) ? ws.color : 'grey',
+  };
+}
+
+/** ワークスペースタブを置くべき index（固定タブの直後 = 固定タブの数。固定タブはグループに入れられないため） */
+export function workspaceTabIndex(tabs) {
+  return (tabs || []).filter((t) => t && t.pinned).length;
+}
+
+/**
+ * ウィンドウのタブからワークスペースタブを探し、残す 1 枚と閉じる残りを決める。
+ * 残すのはグループに入っているもの → index が小さいもの の順（決定的にするため）。
+ * 戻り値: { keep: Tab | null, close: Tab[] }
+ */
+export function pickWorkspaceTab(tabs) {
+  const cands = (tabs || []).filter((t) => t && isWorkspaceTabUrl(tabUrl(t)));
+  if (!cands.length) return { keep: null, close: [] };
+  const ungrouped = (t) => (t.groupId !== undefined && t.groupId !== -1 ? 0 : 1);
+  const sorted = [...cands].sort((a, b) => ungrouped(a) - ungrouped(b) || (a.index ?? 0) - (b.index ?? 0));
+  return { keep: sorted[0], close: sorted.slice(1) };
+}
+
+/**
+ * ワークスペースタブが入っているグループを「自分のもの」として扱うか。
+ * ワークスペースタブだけのグループ、前回このウィンドウで使ったグループ（knownGroupId）、
+ * 期待するタイトルのグループなら自分のもの（他のタブが紛れ込んだだけ）。それ以外はユーザーのグループに入れられたとみなす。
+ * members: そのグループに属するタブ
+ */
+export function isOwnWorkspaceGroup({ group, members, wsTabId, knownGroupId, expectedTitle }) {
+  if (!group) return false;
+  const others = (members || []).filter((t) => t.id !== wsTabId);
+  if (!others.length) return true;
+  if (knownGroupId != null && group.id === knownGroupId) return true;
+  return typeof expectedTitle === 'string' && expectedTitle !== '' && group.title === expectedTitle;
+}
+
+/**
+ * ワークスペースタブのグループで、変える必要のあるプロパティだけを返す（変化が無ければ null。自分の更新イベントで無限ループしないため）。
+ * collapse: true なら折りたたむ（グループを作ったとき・ワークスペースが変わったときだけ。ユーザーが開いたのを毎回閉じ直さない）
+ */
+export function workspaceGroupPatch(group, props, { collapse = false } = {}) {
+  const patch = {};
+  if ((group?.title ?? '') !== props.title) patch.title = props.title;
+  if (group?.color !== props.color) patch.color = props.color;
+  if (collapse && !group?.collapsed) patch.collapsed = true;
+  return Object.keys(patch).length ? patch : null;
 }

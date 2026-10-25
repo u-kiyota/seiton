@@ -2,8 +2,9 @@ import {
   tabUrl, normalizeUrlForMatch, isManagerUrl, isWorkspaceTabUrl, workspacesUsingSession, matchesQuery, ICON_GROUPS, ICONS, normalizeIcon,
   TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl, workspaceHotkey, hotkeyToIndex,
   autoCloseDaysFrom, autoCloseDuration, formatAutoCloseDuration, AUTO_CLOSE_UNIT_LABELS,
+  CLOSED_TABS_MAX, closedDayLabel, formatClockTime,
 } from '../lib/core.js';
-import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt } from './api.js';
+import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt, confirmButton } from './api.js';
 
 const $ = (id) => document.getElementById(id);
 const COLORS = Object.keys(COLOR_HEX);
@@ -79,23 +80,6 @@ function windowOf(wsId) {
 
 function sessionName(id) {
   return data.state.sessions[id]?.name || '';
-}
-
-/** 2 回押しで確定するボタン */
-function confirmButton(label, confirmLabel, onConfirm, attrs = {}) {
-  const btn = h('button', { class: 'danger', type: 'button', ...attrs }, label);
-  let armed = false;
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (!armed) {
-      armed = true;
-      btn.textContent = confirmLabel;
-      setTimeout(() => { armed = false; btn.textContent = label; }, 3000);
-      return;
-    }
-    onConfirm();
-  });
-  return btn;
 }
 
 /**
@@ -382,7 +366,7 @@ function renderList() {
   }));
 }
 
-function entryRow({ url, title, sub, active, discarded, onOpen, onClose }) {
+function entryRow({ url, title, sub, extra, active, discarded, onOpen, onClose, closeTitle = 'タブを閉じる' }) {
   return h('div', {
     class: `entry${active ? ' on' : ''}${discarded ? ' discarded' : ''}`,
     title: url || '',
@@ -391,8 +375,9 @@ function entryRow({ url, title, sub, active, discarded, onOpen, onClose }) {
     url ? fav(url) : null,
     h('span', { class: 'title ellipsis' }, title || url || '（無題）'),
     sub ? h('span', { class: 'host muted small ellipsis' }, sub) : null,
+    extra || null,
     onClose ? h('button', {
-      class: 'icon close', type: 'button', title: 'タブを閉じる',
+      class: 'icon close', type: 'button', title: closeTitle,
       onclick: (e) => { e.stopPropagation(); attempt(onClose); },
     }, '×') : null,
   );
@@ -748,6 +733,86 @@ $('sessionAdd').addEventListener('submit', (e) => {
   });
 });
 
+// ---- モーダル: 自動クローズで閉じたタブの履歴 ----
+
+let closedTabs = []; // 新しい順（storage.local の closedTabs）
+
+function updateClosedCount() {
+  $('closedTabs').textContent = closedTabs.length ? `閉じたタブ (${closedTabs.length})` : '閉じたタブ';
+}
+
+async function loadClosedTabs() {
+  closedTabs = await call('listClosedTabs');
+  updateClosedCount();
+  if ($('closedDialog').open) renderClosedDialog();
+}
+
+/** 履歴から 1 件を開き直す。開けたら履歴から消す（開くのに失敗したら残す）。完了後にパネルを閉じる */
+function reopenClosed(entry) {
+  return moveAway(async () => {
+    await openUrlIn(entry.url, entry.workspaceId);
+    await call('removeClosedTab', { id: entry.id });
+    return null; // フォーカスは openUrlIn が移す
+  });
+}
+
+function closedRow(entry) {
+  const wsName = data.state?.workspaces[entry.workspaceId]?.name || entry.workspaceName;
+  return entryRow({
+    url: entry.url,
+    title: entry.title,
+    sub: hostOf(entry.url),
+    extra: [
+      wsName ? h('span', { class: 'ws-session', title: `ワークスペース: ${wsName}` }, wsName) : null,
+      h('span', { class: 'time muted small', title: new Date(entry.closedAt).toLocaleString() }, formatClockTime(entry.closedAt)),
+    ],
+    onOpen: () => reopenClosed(entry),
+    onClose: () => call('removeClosedTab', { id: entry.id }),
+    closeTitle: '履歴から削除',
+  });
+}
+
+const closedClearBtn = confirmButton('すべて削除', '本当に削除？', () => attempt(async () => {
+  await call('clearClosedTabs');
+  toast('閉じたタブの履歴を削除しました');
+}), { title: '閉じたタブの履歴をすべて削除' });
+$('closedClearSlot').append(closedClearBtn);
+$('closedDesc').textContent = `自動クローズで閉じたタブです。最大 ${CLOSED_TABS_MAX} 件（古いものから消えます）。クリックで開き直します。`;
+
+/** 一覧だけを描き直す（検索ボックスの入力・フォーカスは保つ） */
+function renderClosedDialog() {
+  closedClearBtn.disabled = !closedTabs.length;
+  const q = $('closedSearch').value;
+  const items = closedTabs.filter((e) => matchesQuery(`${e.title || ''} ${e.url || ''}`, q));
+  const list = $('closedList');
+  if (!items.length) {
+    list.replaceChildren(h('div', { class: 'empty' }, closedTabs.length ? '一致する閉じたタブはありません' : '自動で閉じたタブはありません'));
+    return;
+  }
+  const now = Date.now();
+  const nodes = [];
+  let label = null;
+  for (const e of items) {
+    const l = closedDayLabel(e.closedAt, now);
+    if (l !== label) {
+      label = l;
+      nodes.push(h('div', { class: 'group-label' }, l));
+    }
+    nodes.push(closedRow(e));
+  }
+  list.replaceChildren(...nodes);
+}
+
+$('closedTabs').addEventListener('click', () => attempt(async () => {
+  $('closedSearch').value = '';
+  renderClosedDialog();
+  $('closedDialog').showModal();
+  $('closedSearch').focus();
+  await loadClosedTabs();
+}));
+$('closedClose').addEventListener('click', () => $('closedDialog').close());
+$('closedSearch').addEventListener('input', () => renderClosedDialog());
+
 // ---- 描画 ----
 
 let pendingRender = false;
@@ -832,6 +897,12 @@ $('guide').addEventListener('click', () => attempt(() => moveAway(async () => {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if ((area === 'local' && changes.state) || (area === 'session' && changes.bindings)) attempt(load);
+  if (area === 'local' && changes.closedTabs) {
+    const v = changes.closedTabs.newValue;
+    closedTabs = Array.isArray(v) ? v : [];
+    updateClosedCount();
+    if ($('closedDialog').open) renderClosedDialog();
+  }
 });
 chrome.bookmarks.onCreated.addListener(() => { bmKey = ''; folders = null; scheduleDetail(); });
 chrome.bookmarks.onRemoved.addListener(() => { bmKey = ''; folders = null; scheduleDetail(); });
@@ -1083,4 +1154,5 @@ chrome.bookmarks.onMoved.addListener(() => { allBm = null; });
   windowId = await resolveTargetWindow();
   await attempt(load);
   $('search').focus();
+  attempt(loadClosedTabs);
 })();

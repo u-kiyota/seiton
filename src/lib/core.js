@@ -616,3 +616,50 @@ export function tabsToAutoClose(tabs, { now, days, inherited = {} }) {
   }
   return out;
 }
+
+// ---- 自動クローズで閉じたタブの履歴（issue #18） ----
+
+/** 履歴（storage.local の closedTabs）に残す件数の上限。超えた分は古いものから捨てる */
+export const CLOSED_TABS_MAX = 500;
+
+/** 新しい順の履歴を先頭から max 件に切り詰める（配列でなければ空、max が不正なら CLOSED_TABS_MAX） */
+export function trimClosedTabs(list, max = CLOSED_TABS_MAX) {
+  if (!Array.isArray(list)) return [];
+  const n = Number.isInteger(max) && max >= 0 ? max : CLOSED_TABS_MAX;
+  return list.length > n ? list.slice(0, n) : list;
+}
+
+/**
+ * 自動クローズで閉じるタブ 1 件分の履歴エントリ。
+ * ws は閉じた時点のワークスペース（未割り当てなら null）。名前も残すので、後でワークスペースを削除しても表示できる。
+ * data: の favicon は大きくなりがちなので保存しない（表示は favicon 権限でページ URL から引く）
+ */
+export function closedTabEntry(tab, ws, now = Date.now()) {
+  const fav = typeof tab?.favIconUrl === 'string' && !tab.favIconUrl.startsWith('data:') ? tab.favIconUrl : '';
+  return {
+    id: uid('ct_'),
+    url: tabUrl(tab || {}),
+    title: tab?.title || '',
+    favIconUrl: fav,
+    closedAt: now,
+    workspaceId: ws?.id || null,
+    workspaceName: ws?.name || '',
+    reason: 'auto',
+  };
+}
+
+/** 履歴の日付見出し: 今日 / 昨日 / M/D（ローカル時刻の暦日で判定） */
+export function closedDayLabel(ts, now = Date.now()) {
+  const day = (t) => { const x = new Date(t); return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); };
+  const diff = Math.round((day(now) - day(ts)) / DAY_MS);
+  if (diff === 0) return '今日';
+  if (diff === 1) return '昨日';
+  const d = new Date(ts);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+/** 時刻 HH:mm（ローカル時刻） */
+export function formatClockTime(ts) {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}

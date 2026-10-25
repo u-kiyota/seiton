@@ -21,6 +21,7 @@ import {
 } from './lib/memory.js';
 import { AUTO_CLOSE_ALARM, configureAutoClose, runAutoClose } from './lib/autoclose.js';
 import { forgetInheritedAccess } from './lib/access.js';
+import { listClosedTabs, removeClosedTab, clearClosedTabs } from './lib/history.js';
 import { isBookmarkableUrl, findBookmarkByUrl, changedBindingWindows, indicatorSignature } from './lib/core.js';
 import {
   refreshWindowIndicator, refreshAllIndicators, refreshTabIndicator, scheduleTabIndicator,
@@ -341,6 +342,8 @@ const readOnly = {
     }
     return out;
   },
+  // 自動クローズで閉じたタブの履歴（新しい順）
+  listClosedTabs: () => listClosedTabs(),
 };
 
 const mutating = {
@@ -389,6 +392,8 @@ const mutating = {
     updateWorkspace(workspaceId, { bookmarkFolderId: folderId || null, bookmarkFolderManaged: false }),
   saveCurrentTab: ({ windowId }) => saveCurrentTab(windowId),
   discardInactive: ({ windowId }) => discardInactiveInWindow(windowId),
+  removeClosedTab: ({ id }) => removeClosedTab(id),
+  clearClosedTabs: () => clearClosedTabs(),
   updateSettings: async ({ patch }) => {
     const state = await mutate((state) => {
       const prevAutoClose = state.settings.autoClose;

@@ -62,6 +62,23 @@ export function toast(msg, isError = false) {
   toast.timer = setTimeout(() => (el.className = ''), 2500);
 }
 
+/** 2 回押しで確定するボタン（1 回目でラベルが confirmLabel に変わり、3 秒以内にもう一度押すと onConfirm） */
+export function confirmButton(label, confirmLabel, onConfirm, attrs = {}) {
+  const btn = h('button', { class: 'danger', type: 'button', ...attrs }, label);
+  let armed = false;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!armed) {
+      armed = true;
+      btn.textContent = confirmLabel;
+      setTimeout(() => { armed = false; btn.textContent = label; }, 3000);
+      return;
+    }
+    onConfirm();
+  });
+  return btn;
+}
+
 /** 非同期処理を実行し、失敗したらトーストを出す */
 export async function attempt(fn) {
   try {

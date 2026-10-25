@@ -260,3 +260,62 @@ export function matchesQuery(text, query) {
   const t = (text || '').toLowerCase();
   return q.split(/\s+/).every((w) => t.includes(w));
 }
+
+// ---- 管理パネル: タブのドラッグ＆ドロップでブックマーク登録 ----
+
+/** 管理パネル内でタブをドラッグする時の独自 MIME タイプ */
+export const TAB_DRAG_TYPE = 'application/x-seiton-tab';
+
+/** ブックマークとして保存できる URL か（chrome:// / about: / 拡張ページなどは除く） */
+export function isBookmarkableUrl(url) {
+  if (typeof url !== 'string' || !url) return false;
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  return u.protocol === 'http:' || u.protocol === 'https:' || u.protocol === 'file:';
+}
+
+/** text/uri-list から最初の URL を取り出す（# で始まる行はコメント） */
+export function firstUriFromList(text) {
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const s = line.trim();
+    if (s && !s.startsWith('#')) return s;
+  }
+  return '';
+}
+
+/**
+ * ドロップされた dataTransfer から { url, title } を取り出す。
+ * getData: (type) => string（DataTransfer.getData 相当）。独自形式 → text/uri-list → text/plain の順に見る。
+ * URL が取れなければ null。
+ */
+export function parseTabDragData(getData) {
+  const get = (type) => {
+    try {
+      return getData(type) || '';
+    } catch {
+      return '';
+    }
+  };
+  const raw = get(TAB_DRAG_TYPE);
+  if (raw) {
+    try {
+      const v = JSON.parse(raw);
+      if (v && typeof v.url === 'string' && v.url) {
+        return { url: v.url, title: typeof v.title === 'string' && v.title ? v.title : v.url };
+      }
+    } catch { /* 壊れていれば他の形式を見る */ }
+  }
+  const url = firstUriFromList(get('text/uri-list')) || get('text/plain').trim();
+  return url ? { url, title: url } : null;
+}
+
+/** ブックマーク一覧（{ url }[]）に同じ URL（フラグメント・末尾スラッシュ無視）があればそれを返す */
+export function findBookmarkByUrl(items, url) {
+  const want = normalizeUrlForMatch(url);
+  if (!want) return null;
+  return (items || []).find((it) => it?.url && normalizeUrlForMatch(it.url) === want) || null;
+}

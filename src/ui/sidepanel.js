@@ -1,5 +1,6 @@
 import {
   tabUrl, normalizeUrlForMatch, isManagerUrl, workspacesUsingSession, matchesQuery, ICON_GROUPS, ICONS, normalizeIcon,
+  TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl,
 } from '../lib/core.js';
 import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt } from './api.js';
 
@@ -288,6 +289,7 @@ function renderList() {
         : openIn != null ? h('span', { class: 'badge', title: '別ウィンドウで開いている' }, '別') : null,
       h('span', { class: 'muted small', title: '保存されているタブ数' }, `${ws.tabs.length}`),
     );
+    makeTabDropTarget(head, () => data.state?.workspaces[id] || null);
     return h('div', { class: `ws${here ? ' current' : ''}${selectedId === id ? ' sel' : ''}` }, head);
   }));
 }
@@ -306,6 +308,86 @@ function entryRow({ url, title, sub, active, discarded, onOpen, onClose }) {
       onclick: (e) => { e.stopPropagation(); attempt(onClose); },
     }, '×') : null,
   );
+}
+
+// ---- 開いているタブのドラッグ＆ドロップでブックマーク登録 ----
+
+// ドラッグを始めた行の click（そのタブへ移動）を 1 回だけ無視する。次の mousedown で解除
+let suppressRowClick = false;
+document.addEventListener('mousedown', () => { suppressRowClick = false; }, true);
+
+/** 開いているタブの行をドラッグ可能にする（ブックマーク一覧・ワークスペース行・Chrome のブックマークバーへ落とせる） */
+function makeTabDraggable(row, tab) {
+  const url = tabUrl(tab);
+  if (!url) return row;
+  row.draggable = true;
+  row.addEventListener('dragstart', (e) => {
+    suppressRowClick = true;
+    const dt = e.dataTransfer;
+    dt.effectAllowed = 'copy';
+    dt.setData(TAB_DRAG_TYPE, JSON.stringify({ url, title: tab.title || url, tabId: tab.id }));
+    dt.setData('text/uri-list', url);
+    dt.setData('text/plain', url);
+  });
+  row.addEventListener('dragend', clearDropTargets);
+  // 対象要素上の capture リスナーは onclick より先に呼ばれる
+  row.addEventListener('click', (e) => {
+    if (!suppressRowClick) return;
+    suppressRowClick = false;
+    e.stopImmediatePropagation();
+  }, true);
+  return row;
+}
+
+function hasTabDrag(e) {
+  return !!e.dataTransfer && [...e.dataTransfer.types].includes(TAB_DRAG_TYPE);
+}
+
+function clearDropTargets() {
+  for (const el of document.querySelectorAll('.drop-target, .drop-reject')) el.classList.remove('drop-target', 'drop-reject');
+}
+
+/**
+ * el をタブのドロップ先にする。getWs(): ドロップ先のワークスペース（null なら受け付けない）。
+ * 接続フォルダが無いワークスペースはドロップを受けてトーストで理由を出す。
+ */
+function makeTabDropTarget(el, getWs) {
+  el.addEventListener('dragover', (e) => {
+    if (!hasTabDrag(e)) return;
+    const ws = getWs();
+    if (!ws) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    el.classList.toggle('drop-target', !!ws.bookmarkFolderId);
+    el.classList.toggle('drop-reject', !ws.bookmarkFolderId);
+  });
+  el.addEventListener('dragleave', (e) => {
+    // 子要素間の移動では外さない（ハイライトの点滅防止）
+    if (e.relatedTarget && el.contains(e.relatedTarget)) return;
+    el.classList.remove('drop-target', 'drop-reject');
+  });
+  el.addEventListener('drop', (e) => {
+    if (!hasTabDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    clearDropTargets();
+    const ws = getWs();
+    const item = parseTabDragData((type) => e.dataTransfer.getData(type));
+    if (ws && item) attempt(() => dropTabInto(ws, item));
+  });
+}
+
+async function dropTabInto(ws, { url, title }) {
+  if (!ws.bookmarkFolderId) {
+    toast('このワークスペースにはブックマークフォルダが接続されていません', true);
+    return;
+  }
+  if (!isBookmarkableUrl(url)) {
+    toast('このページはブックマークに保存できません', true);
+    return;
+  }
+  const res = await call('addBookmarkToWorkspace', { workspaceId: ws.id, url, title });
+  toast(res.created ? `${res.workspaceName} に保存しました` : `${res.workspaceName} に保存済みです`);
 }
 
 function renderBookmarks() {
@@ -382,6 +464,12 @@ function renderBookmarks() {
   body.replaceChildren(...nodes);
 }
 
+// 開いているタブをブックマーク一覧へドロップ → 選択中ワークスペースの接続フォルダに登録
+makeTabDropTarget($('bookmarks'), () => {
+  const ws = data.state?.workspaces[selectedId];
+  return ws?.bookmarkFolderId ? ws : null;
+});
+
 function renderTabs() {
   const view = detail.tabsView;
   const body = $('tabs');
@@ -435,7 +523,7 @@ function renderTabs() {
       if (gid !== -1) nodes.push(h('div', { class: 'group-label' }, groupById[gid]?.title || 'グループ'));
     }
     const url = tabUrl(t);
-    nodes.push(entryRow({
+    nodes.push(makeTabDraggable(entryRow({
       url,
       title: (t.pinned ? '📌 ' : '') + (t.title || url || '新しいタブ'),
       sub: t.discarded ? '休止中' : hostOf(url),
@@ -443,7 +531,7 @@ function renderTabs() {
       discarded: t.discarded,
       onOpen: () => focusTab(t),
       onClose: async () => { await chrome.tabs.remove(t.id); },
-    }));
+    }), t));
   }
   body.replaceChildren(...nodes);
 }

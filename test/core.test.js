@@ -4,6 +4,7 @@ import {
   snapshotTabs, urlOverlap, matchWindowsToWorkspaces, missingTabs, shouldRouteBookmark,
   neighborWorkspace, normalizeState, defaultState, matchesQuery, planRestore, isManagerUrl,
   workspacesUsingSession, normalizeIcon, ICONS, ICON_GROUPS,
+  TAB_DRAG_TYPE, isBookmarkableUrl, firstUriFromList, parseTabDragData, findBookmarkByUrl,
 } from '../src/lib/core.js';
 
 test('snapshotTabs: 並び順・グループ・除外 URL', () => {
@@ -176,4 +177,44 @@ test('normalizeState: ワークスペースの icon を正規化する', () => {
   assert.equal(s.workspaces.a.icon, '🔥');
   assert.equal(s.workspaces.b.icon, '');
   assert.equal(s.workspaces.c.icon, '');
+});
+
+test('isBookmarkableUrl: http / https / file のみ保存可', () => {
+  assert.equal(isBookmarkableUrl('https://example.com/a'), true);
+  assert.equal(isBookmarkableUrl('http://localhost:3000/'), true);
+  assert.equal(isBookmarkableUrl('file:///C:/tmp/a.html'), true);
+  for (const url of ['chrome://settings/', 'chrome://newtab/', 'about:blank', 'chrome-extension://abc/src/ui/sidepanel.html',
+    'devtools://devtools/x', 'javascript:alert(1)', 'data:text/html,x', 'not a url', '', null, undefined]) {
+    assert.equal(isBookmarkableUrl(url), false, String(url));
+  }
+});
+
+test('firstUriFromList: コメント行と空行を飛ばして最初の URL', () => {
+  assert.equal(firstUriFromList('# comment\r\n\r\nhttps://a.example/\r\nhttps://b.example/'), 'https://a.example/');
+  assert.equal(firstUriFromList(''), '');
+  assert.equal(firstUriFromList('# only comment'), '');
+});
+
+test('parseTabDragData: 独自形式 → uri-list → text/plain の順', () => {
+  const dt = (m) => (type) => m[type] || '';
+  assert.deepEqual(
+    parseTabDragData(dt({ [TAB_DRAG_TYPE]: JSON.stringify({ url: 'https://a/', title: 'A', tabId: 1 }), 'text/uri-list': 'https://x/' })),
+    { url: 'https://a/', title: 'A' },
+  );
+  assert.deepEqual(parseTabDragData(dt({ [TAB_DRAG_TYPE]: JSON.stringify({ url: 'https://a/', title: '' }) })),
+    { url: 'https://a/', title: 'https://a/' }, 'タイトルが空なら URL');
+  assert.deepEqual(parseTabDragData(dt({ [TAB_DRAG_TYPE]: '{broken', 'text/uri-list': '#c\nhttps://u/' })),
+    { url: 'https://u/', title: 'https://u/' });
+  assert.deepEqual(parseTabDragData(dt({ 'text/plain': ' https://p/ ' })), { url: 'https://p/', title: 'https://p/' });
+  assert.equal(parseTabDragData(dt({})), null);
+  assert.equal(parseTabDragData(() => { throw new Error('protected'); }), null, 'getData が投げても null');
+});
+
+test('findBookmarkByUrl: フラグメント・末尾スラッシュを無視して重複を検出', () => {
+  const items = [{ id: '1', url: 'https://a.example/x/' }, { id: '2', url: 'https://b.example/' }];
+  assert.equal(findBookmarkByUrl(items, 'https://a.example/x#top')?.id, '1');
+  assert.equal(findBookmarkByUrl(items, 'https://b.example')?.id, '2');
+  assert.equal(findBookmarkByUrl(items, 'https://c.example/'), null);
+  assert.equal(findBookmarkByUrl(items, ''), null);
+  assert.equal(findBookmarkByUrl(null, 'https://a.example/x'), null);
 });

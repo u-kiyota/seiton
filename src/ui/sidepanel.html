@@ -11,6 +11,7 @@
   <header class="appbar">
     <div class="brand"><img src="../../icons/logo.png" alt="" width="40" height="40">seiton</div>
     <span class="grow"></span>
+    <button id="closedTabs" title="自動クローズで閉じたタブの履歴（クリックで開き直せます）">閉じたタブ</button>
     <button id="sessions" title="セッション（ワークスペースごとに使うアカウント / ログイン状態のラベル）を管理">セッション</button>
     <button id="discard" title="このウィンドウの非アクティブなタブのメモリを解放（タブは残ります）">非アクティブなタブを休止</button>
   </header>
@@ -97,6 +98,21 @@
         <input id="sessionName" type="text" class="grow" placeholder="新しいセッション名（例: AWS 開発アカウント）" autocomplete="off">
         <button type="submit">追加</button>
       </form>
+    </div>
+  </dialog>
+
+  <dialog id="closedDialog">
+    <div class="dlg-head">
+      <span class="grow">閉じたタブ</span>
+      <button type="button" class="icon" id="closedClose" title="閉じる">×</button>
+    </div>
+    <div class="dlg-body">
+      <div class="muted small" id="closedDesc"></div>
+      <div class="row">
+        <input id="closedSearch" type="search" class="grow" placeholder="タイトル・URL で絞り込み" autocomplete="off">
+        <span id="closedClearSlot"></span>
+      </div>
+      <div id="closedList"></div>
     </div>
   </dialog>
 

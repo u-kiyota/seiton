@@ -147,6 +147,15 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .sess-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .sess-row:last-child { border-bottom: none; }
 .sess-row input[type=text] { flex: 1; min-width: 0; }
+/* 閉じたタブの履歴 */
+#closedDialog { width: min(760px, 92vw); }
+#closedSearch { min-width: 0; padding: 6px 10px; }
+#closedList { max-height: min(60vh, 560px); overflow: auto; margin: 0 -8px; }
+#closedList .group-label { padding: 10px 12px 2px; }
+#closedList .entry { padding: 7px 12px; gap: 10px; }
+#closedList .entry .host { max-width: 200px; }
+#closedList .entry .ws-session { max-width: 140px; }
+#closedList .entry .time { flex: none; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 960px) {
   .board { grid-template-columns: 240px minmax(0, 1fr); }

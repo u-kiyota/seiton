@@ -58,7 +58,7 @@
       </select>
     </label>
     <div class="desc">
-      15 分ごとに確認し、最後にアクティブにしてからこの期間が経ったタブを閉じます（最短 15 分）。閉じたタブは Chrome の履歴から開き直せます。
+      15 分ごとに確認し、最後にアクティブにしてからこの期間が経ったタブを閉じます（最短 15 分）。閉じたタブは管理パネルの「閉じたタブ」（最大 500 件）や Chrome の履歴から開き直せます。
       固定タブ・音声再生中のタブ・各ウィンドウのアクティブなタブ・seiton 自身のページは対象外で、ウィンドウの最後の 1 枚は閉じません。
       閉じたタブはワークスペースの保存内容からも外れます。ワークスペースごとに、管理パネルの ✎ で上書きできます。
     </div>
@@ -82,7 +82,11 @@
     <button id="export">エクスポート（JSON）</button>
     <label class="row"><button id="importBtn">インポート</button><input id="importFile" type="file" accept="application/json" hidden></label>
   </div>
-  <p class="muted small">インポートすると現在のワークスペース・セッション設定はすべて置き換わります（ブックマークそのものは含まれません）。</p>
+  <p class="muted small">インポートすると現在のワークスペース・セッション設定はすべて置き換わります（ブックマークそのものは含まれません）。自動クローズで閉じたタブの履歴はエクスポート / インポートの対象外です。</p>
+  <div class="row">
+    <span id="clearClosedSlot"></span>
+    <span class="muted small" id="closedCount"></span>
+  </div>
 
   <script type="module" src="options.js"></script>
 </body>

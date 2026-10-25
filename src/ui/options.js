@@ -1,4 +1,4 @@
-import { call, h, toast, attempt } from './api.js';
+import { call, h, toast, attempt, confirmButton } from './api.js';
 import { autoCloseDaysFrom, autoCloseDuration } from '../lib/core.js';
 
 const $ = (id) => document.getElementById(id);
@@ -72,4 +72,21 @@ $('importFile').addEventListener('change', (e) => attempt(async () => {
   await load();
 }));
 
+// 自動クローズで閉じたタブの履歴（管理パネルを開かなくても一括削除できるように）
+const clearClosedBtn = confirmButton('閉じたタブの履歴を削除', '本当に削除？', () => attempt(async () => {
+  await call('clearClosedTabs');
+  toast('閉じたタブの履歴を削除しました');
+}), { title: '自動クローズで閉じたタブの履歴をすべて削除（管理パネルの「閉じたタブ」と同じ）' });
+$('clearClosedSlot').append(clearClosedBtn);
+
+function showClosedCount(list) {
+  const n = Array.isArray(list) ? list.length : 0;
+  clearClosedBtn.disabled = !n;
+  $('closedCount').textContent = `自動クローズで閉じたタブの履歴: ${n} 件`;
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.closedTabs) showClosedCount(changes.closedTabs.newValue);
+});
+
 attempt(load);
+attempt(async () => showClosedCount(await call('listClosedTabs')));

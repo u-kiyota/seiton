@@ -9,6 +9,7 @@ import {
   workspaceHotkey, hotkeyToIndex,
   DEFAULT_SETTINGS, parseAutoCloseDays, normalizeAutoClose, normalizeAutoCloseOverride, effectiveAutoClose,
   isAutoCloseActive, tabsToAutoClose, autoCloseDaysFrom, autoCloseDuration, formatAutoCloseDuration, effectiveLastAccessed,
+  CLOSED_TABS_MAX, trimClosedTabs, closedTabEntry, closedDayLabel, formatClockTime,
 } from '../src/lib/core.js';
 
 test('COLOR_HEX: 全ての色名に hex がある', () => {
@@ -527,4 +528,56 @@ test('autoCloseDuration / formatAutoCloseDuration: 割り切れる最大の単�
   assert.equal(formatAutoCloseDuration(15 / 1440), '15 分');
   // 往復
   for (const [v, u] of [[3, 'days'], [36, 'hours'], [45, 'minutes']]) assert.deepEqual(autoCloseDuration(autoCloseDaysFrom(v, u)), { value: v, unit: u });
+});
+
+test('trimClosedTabs: 新しい順の先頭から max 件を残し、古いもの（末尾）を捨てる', () => {
+  assert.equal(CLOSED_TABS_MAX, 500);
+  const list = Array.from({ length: 503 }, (_, i) => ({ id: `e${i}` }));
+  const out = trimClosedTabs(list);
+  assert.equal(out.length, 500);
+  assert.equal(out[0].id, 'e0');
+  assert.equal(out[499].id, 'e499');
+  assert.deepEqual(trimClosedTabs(list, 2).map((e) => e.id), ['e0', 'e1']);
+  assert.equal(trimClosedTabs(list.slice(0, 3)).length, 3, '上限未満はそのまま');
+  assert.deepEqual(trimClosedTabs(list, 0), []);
+  assert.equal(trimClosedTabs(list, -1).length, 500, '不正な max は既定の上限');
+  assert.equal(trimClosedTabs(list, NaN).length, 500);
+  assert.deepEqual(trimClosedTabs(null), []);
+  assert.deepEqual(trimClosedTabs({ length: 3 }), []);
+});
+
+test('closedTabEntry: タブとワークスペースから履歴エントリを作る', () => {
+  const tab = { id: 5, url: 'https://example.com/a', title: 'A', favIconUrl: 'https://example.com/favicon.ico' };
+  const e = closedTabEntry(tab, { id: 'ws1', name: '案件A' }, 1000);
+  assert.equal(typeof e.id, 'string');
+  assert.ok(e.id.length > 0);
+  assert.deepEqual({ ...e, id: undefined }, {
+    id: undefined, url: 'https://example.com/a', title: 'A', favIconUrl: 'https://example.com/favicon.ico',
+    closedAt: 1000, workspaceId: 'ws1', workspaceName: '案件A', reason: 'auto',
+  });
+  assert.notEqual(closedTabEntry(tab, null, 1000).id, e.id, 'id は毎回別');
+});
+
+test('closedTabEntry: 未割り当て・data: の favicon・pendingUrl', () => {
+  const e = closedTabEntry({ pendingUrl: 'https://p.example/', favIconUrl: 'data:image/png;base64,AAAA' }, null, 5);
+  assert.equal(e.url, 'https://p.example/');
+  assert.equal(e.title, '');
+  assert.equal(e.favIconUrl, '', 'data: の favicon は保存しない');
+  assert.equal(e.workspaceId, null);
+  assert.equal(e.workspaceName, '');
+  assert.equal(e.reason, 'auto');
+});
+
+test('closedDayLabel: 今日 / 昨日 / M/D（ローカル時刻の暦日）', () => {
+  const now = new Date(2026, 9, 25, 0, 30).getTime();
+  assert.equal(closedDayLabel(new Date(2026, 9, 25, 0, 0).getTime(), now), '今日');
+  assert.equal(closedDayLabel(new Date(2026, 9, 24, 23, 59).getTime(), now), '昨日', '日付が変わっていれば 1 分前でも昨日');
+  assert.equal(closedDayLabel(new Date(2026, 9, 23, 12, 0).getTime(), now), '10/23');
+  assert.equal(closedDayLabel(new Date(2025, 11, 31, 12, 0).getTime(), new Date(2026, 0, 1, 9, 0).getTime()), '昨日', '年をまたぐ');
+  assert.equal(closedDayLabel(new Date(2026, 2, 1, 12, 0).getTime(), new Date(2026, 2, 3, 9, 0).getTime()), '3/1');
+});
+
+test('formatClockTime: HH:mm（ゼロ埋め）', () => {
+  assert.equal(formatClockTime(new Date(2026, 9, 25, 9, 5).getTime()), '09:05');
+  assert.equal(formatClockTime(new Date(2026, 9, 25, 23, 59).getTime()), '23:59');
 });

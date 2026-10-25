@@ -8,7 +8,7 @@ import {
   COLORS, COLOR_HEX, firstGrapheme, indicatorLabel, changedBindingWindows, indicatorSignature, UNASSIGNED_INDICATOR_TITLE,
   workspaceHotkey, hotkeyToIndex,
   DEFAULT_SETTINGS, parseAutoCloseDays, normalizeAutoClose, normalizeAutoCloseOverride, effectiveAutoClose,
-  isAutoCloseActive, tabsToAutoClose, effectiveLastAccessed,
+  isAutoCloseActive, tabsToAutoClose, autoCloseDaysFrom, autoCloseDuration, formatAutoCloseDuration, effectiveLastAccessed,
 } from '../src/lib/core.js';
 
 test('COLOR_HEX: 全ての色名に hex がある', () => {
@@ -502,4 +502,29 @@ test('snapshotTabs: lastAccessed を保存し、復元後に触っていない�
   assert.equal(snap.tabs[1].lastAccessed, NOW - 10 * DAY);
   assert.equal('lastAccessed' in snap.tabs[2], false, '値が無ければ保存しない');
   assert.equal(snapshotTabs(tabs).tabs[1].lastAccessed, restoredAt);
+});
+
+test('autoCloseDaysFrom: 分 / 時間 / 日 を日数に換算し、15 分未満や不正値は null', () => {
+  assert.equal(autoCloseDaysFrom(7, 'days'), 7);
+  assert.equal(autoCloseDaysFrom('12', 'hours'), 0.5);
+  assert.ok(Math.abs(autoCloseDaysFrom(15, 'minutes') - 15 / 1440) < 1e-12);
+  assert.equal(autoCloseDaysFrom(14, 'minutes'), null, '15 分未満（0.01 日未満）');
+  assert.equal(autoCloseDaysFrom(1, 'weeks'), null, '不明な単位');
+  assert.equal(autoCloseDaysFrom('', 'days'), null);
+  assert.equal(autoCloseDaysFrom('abc', 'days'), null);
+  assert.equal(autoCloseDaysFrom(-1, 'days'), null);
+});
+
+test('autoCloseDuration / formatAutoCloseDuration: 割り切れる最大の単位で表す', () => {
+  assert.deepEqual(autoCloseDuration(7), { value: 7, unit: 'days' });
+  assert.deepEqual(autoCloseDuration(0.5), { value: 12, unit: 'hours' });
+  assert.deepEqual(autoCloseDuration(2), { value: 2, unit: 'days' });
+  assert.deepEqual(autoCloseDuration(30 / 1440), { value: 30, unit: 'minutes' });
+  assert.deepEqual(autoCloseDuration(90 / 1440), { value: 90, unit: 'minutes' }, '1.5 時間は分で表す');
+  assert.deepEqual(autoCloseDuration(NaN), { value: 7, unit: 'days' }, '不正値は既定の 7 日');
+  assert.equal(formatAutoCloseDuration(7), '7 日');
+  assert.equal(formatAutoCloseDuration(0.5), '12 時間');
+  assert.equal(formatAutoCloseDuration(15 / 1440), '15 分');
+  // 往復
+  for (const [v, u] of [[3, 'days'], [36, 'hours'], [45, 'minutes']]) assert.deepEqual(autoCloseDuration(autoCloseDaysFrom(v, u)), { value: v, unit: u });
 });

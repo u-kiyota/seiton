@@ -402,3 +402,17 @@ export function indicatorSignature(rawState) {
   const ss = Object.keys(sessions).sort().map((id) => [id, sessions[id]?.name ?? '']);
   return JSON.stringify([ws, ss]);
 }
+
+// ---- 管理パネル: 番号キーで切替 ----
+
+/** 並び順の index（0 始まり）に対応する番号キー: 0〜8 → '1'〜'9'、9 → '0'、それ以外は null */
+export function workspaceHotkey(index) {
+  if (!Number.isInteger(index) || index < 0 || index > 9) return null;
+  return String((index + 1) % 10);
+}
+
+/** 番号キー（'0'〜'9'）→ 並び順の index（0〜9）。数字 1 文字以外は null */
+export function hotkeyToIndex(key) {
+  if (typeof key !== 'string' || !/^[0-9]$/.test(key)) return null;
+  return (Number(key) + 9) % 10;
+}

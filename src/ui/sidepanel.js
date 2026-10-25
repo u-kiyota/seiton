@@ -1,6 +1,6 @@
 import {
   tabUrl, normalizeUrlForMatch, isManagerUrl, workspacesUsingSession, matchesQuery, ICON_GROUPS, ICONS, normalizeIcon,
-  TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl,
+  TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl, workspaceHotkey, hotkeyToIndex,
 } from '../lib/core.js';
 import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt } from './api.js';
 
@@ -328,7 +328,7 @@ function renderList() {
     return;
   }
   const showSession = state.sessionOrder.length > 1;
-  list.replaceChildren(...state.workspaceOrder.map((id) => {
+  list.replaceChildren(...state.workspaceOrder.map((id, index) => {
     const ws = state.workspaces[id];
     const openIn = windowOf(id);
     const here = bindings[windowId] === id;
@@ -337,6 +337,7 @@ function renderList() {
       title: here ? 'このウィンドウで開いています' : openIn != null ? 'クリックで開いているウィンドウへ移動' : 'クリックでこのウィンドウに開く',
       onclick: () => onRowClick(id),
     },
+      workspaceHotkey(index) ? h('span', { class: 'badge hotkey', title: `${workspaceHotkey(index)} キーで切替（Shift で新しいウィンドウ）` }, workspaceHotkey(index)) : null,
       wsIcon(ws),
       h('span', { class: 'grow ellipsis' }, ws.name),
       showSession ? h('span', { class: 'ws-session', title: `使うセッション: ${sessionName(ws.sessionId)}` }, sessionName(ws.sessionId)) : null,
@@ -990,6 +991,24 @@ document.addEventListener('keydown', (e) => {
   e.preventDefault();
   $('search').focus();
   $('search').select();
+});
+// 番号キー 1〜9 / 0 でワークスペースへ切替（Shift で新しいウィンドウ）。入力欄では発火しない（空の検索ボックスのみ例外）
+document.addEventListener('keydown', (e) => {
+  if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.altKey || e.metaKey) return;
+  // Shift 併用時は e.key が '!' などになるので e.code（Digit / Numpad）から数字を取る
+  const m = /^(?:Digit|Numpad)([0-9])$/.exec(e.code || '');
+  const key = m ? m[1] : e.key;
+  const index = hotkeyToIndex(key);
+  if (index == null) return;
+  const t = e.target;
+  const editable = t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
+  if (editable && !(t === $('search') && !t.value)) return;
+  if (editingId || document.querySelector('dialog[open]')) return;
+  const id = data?.state?.workspaceOrder[index];
+  if (!id) return;
+  e.preventDefault();
+  if (e.shiftKey) openNewWindow(id);
+  else switchHere(id);
 });
 // パネルが表示されたとき、他に入力中でなければ検索ボックスへ
 document.addEventListener('visibilitychange', () => {

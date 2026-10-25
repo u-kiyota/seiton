@@ -6,6 +6,7 @@ import {
   workspacesUsingSession, normalizeIcon, ICONS, ICON_GROUPS,
   TAB_DRAG_TYPE, isBookmarkableUrl, firstUriFromList, parseTabDragData, findBookmarkByUrl,
   COLORS, COLOR_HEX, firstGrapheme, indicatorLabel, changedBindingWindows, indicatorSignature, UNASSIGNED_INDICATOR_TITLE,
+  workspaceHotkey, hotkeyToIndex,
 } from '../src/lib/core.js';
 
 test('COLOR_HEX: 全ての色名に hex がある', () => {
@@ -315,4 +316,12 @@ test('managerPopupBounds: bounds が無い・不正なら null', () => {
   assert.equal(managerPopupBounds({ left: 0, top: 0 }), null);
   assert.equal(managerPopupBounds({ left: 0, top: 0, width: 0, height: 100 }), null);
   assert.equal(managerPopupBounds({ left: NaN, top: 0, width: 100, height: 100 }), null);
+});
+
+test('workspaceHotkey / hotkeyToIndex: 1〜9, 0 と index の対応', () => {
+  assert.deepEqual([0, 1, 8, 9].map(workspaceHotkey), ['1', '2', '9', '0']);
+  for (const i of [-1, 10, 1.5, NaN, undefined, '0']) assert.equal(workspaceHotkey(i), null);
+  assert.deepEqual(['1', '2', '9', '0'].map(hotkeyToIndex), [0, 1, 8, 9]);
+  for (const k of ['a', '10', '', null, undefined, 5, 'Enter']) assert.equal(hotkeyToIndex(k), null);
+  for (let i = 0; i < 10; i++) assert.equal(hotkeyToIndex(workspaceHotkey(i)), i);
 });

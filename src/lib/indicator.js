@@ -128,6 +128,37 @@ export async function refreshAllIndicators() {
   }
 }
 
+const pendingTabs = new Map(); // windowId → Set<tabId>
+const tabTimers = new Map();
+
+/**
+ * ページ遷移したタブへの再適用を、ウィンドウごとに短くまとめて行う（復元などで多数のタブが同時に読み込まれても
+ * 状態の読み込みはウィンドウあたり 1 回にする）。ウィンドウ全体の再適用が予約済みならそちらに任せる
+ */
+export function scheduleTabIndicator(tabId, windowId) {
+  if (tabId === undefined || !Number.isFinite(windowId)) return;
+  if (windowTimers.has(windowId)) return;
+  if (!pendingTabs.has(windowId)) pendingTabs.set(windowId, new Set());
+  pendingTabs.get(windowId).add(tabId);
+  if (tabTimers.has(windowId)) return;
+  tabTimers.set(windowId, setTimeout(() => {
+    tabTimers.delete(windowId);
+    const tabIds = [...(pendingTabs.get(windowId) || [])];
+    pendingTabs.delete(windowId);
+    (async () => {
+      let win;
+      try {
+        win = await chrome.windows.get(windowId);
+      } catch {
+        return;
+      }
+      const [state, bindings] = await Promise.all([loadState(), getBindings()]);
+      const ind = resolveIndicator(win, state, bindings);
+      await Promise.all(tabIds.map((id) => applyToTab(id, ind)));
+    })().catch((e) => console.warn('[indicator] tab refresh failed', e));
+  }, 50));
+}
+
 /** 1 タブだけ即座に再適用する（ページ遷移・バッジ表示の後など）。windowId が分かっていれば渡すと tabs.get を省ける */
 export async function refreshTabIndicator(tabId, windowId) {
   if (tabId === undefined) return;

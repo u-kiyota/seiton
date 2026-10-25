@@ -17,7 +17,9 @@ import {
   onTabMaybeDiscardable, flushDiscardQueue, forgetDiscard,
 } from './lib/memory.js';
 import { isBookmarkableUrl, findBookmarkByUrl, changedBindingWindows, indicatorSignature } from './lib/core.js';
-import { refreshWindowIndicator, refreshAllIndicators, refreshTabIndicator } from './lib/indicator.js';
+import {
+  refreshWindowIndicator, refreshAllIndicators, refreshTabIndicator, scheduleTabIndicator,
+} from './lib/indicator.js';
 
 // ---- タブ変更 → 所属ワークスペースへのスナップショット（デバウンス） ----
 
@@ -39,7 +41,7 @@ chrome.tabs.onCreated.addListener((tab) => {
 });
 chrome.tabs.onUpdated.addListener((id, info, tab) => {
   // ページ遷移でタブ単位のアイコン / タイトルが消えることがあるので、その都度「今のワークスペース」を再適用する
-  if (info.status === 'loading' || info.status === 'complete' || info.url) refreshTabIndicator(id, tab.windowId);
+  if (info.status === 'loading' || info.status === 'complete' || info.url) scheduleTabIndicator(id, tab.windowId);
   // title 単体の変化（チャットの未読数など）では保存しない。タイトルは読み込み完了時に拾う
   if ('url' in info || 'pinned' in info || 'groupId' in info || info.status === 'complete') {
     scheduleSnapshot(tab.windowId);

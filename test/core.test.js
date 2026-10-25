@@ -7,6 +7,8 @@ import {
   TAB_DRAG_TYPE, isBookmarkableUrl, firstUriFromList, parseTabDragData, findBookmarkByUrl,
   COLORS, COLOR_HEX, firstGrapheme, indicatorLabel, changedBindingWindows, indicatorSignature, UNASSIGNED_INDICATOR_TITLE,
   workspaceHotkey, hotkeyToIndex,
+  DEFAULT_SETTINGS, parseAutoCloseDays, normalizeAutoClose, normalizeAutoCloseOverride, effectiveAutoClose,
+  isAutoCloseActive, tabsToAutoClose,
 } from '../src/lib/core.js';
 
 test('COLOR_HEX: 全ての色名に hex がある', () => {
@@ -324,4 +326,122 @@ test('workspaceHotkey / hotkeyToIndex: 1〜9, 0 と index の対応', () => {
   assert.deepEqual(['1', '2', '9', '0'].map(hotkeyToIndex), [0, 1, 8, 9]);
   for (const k of ['a', '10', '', null, undefined, 5, 'Enter']) assert.equal(hotkeyToIndex(k), null);
   for (let i = 0; i < 10; i++) assert.equal(hotkeyToIndex(workspaceHotkey(i)), i);
+});
+
+// ---- タブの自動クローズ ----
+
+const DAY = 24 * 60 * 60 * 1000;
+const NOW = Date.UTC(2026, 9, 25, 12);
+const acTab = (id, ageDays, extra = {}) => ({ id, url: `https://example.com/${id}`, lastAccessed: NOW - ageDays * DAY, ...extra });
+
+test('tabsToAutoClose: days 日以上使っていないタブだけを返す（ちょうど days 日も対象）', () => {
+  const tabs = [acTab(1, 0, { active: true }), acTab(2, 8), acTab(3, 7), acTab(4, 6.99)];
+  assert.deepEqual(tabsToAutoClose(tabs, { now: NOW, days: 7 }).map((t) => t.id), [2, 3]);
+});
+
+test('tabsToAutoClose: アクティブ・固定・音声再生中・拡張ページ・lastAccessed なしは除外', () => {
+  const tabs = [
+    acTab(1, 30, { active: true }),
+    acTab(2, 30, { pinned: true }),
+    acTab(3, 30, { audible: true }),
+    acTab(4, 30, { url: 'chrome-extension://abcdef/src/ui/sidepanel.html' }),
+    acTab(5, 30, { url: '', pendingUrl: 'chrome-extension://abcdef/src/ui/guide.html' }),
+    { id: 6, url: 'https://example.com/6' },
+    acTab(7, 30, { lastAccessed: NaN }),
+    acTab(8, 30),
+    acTab(9, 30, { discarded: true }),
+  ];
+  assert.deepEqual(tabsToAutoClose(tabs, { now: NOW, days: 7 }).map((t) => t.id), [8, 9]);
+});
+
+test('tabsToAutoClose: ウィンドウの全タブが対象になる場合は最後に使ったタブを 1 つ残す', () => {
+  const tabs = [acTab(1, 20), acTab(2, 10), acTab(3, 30)];
+  assert.deepEqual(tabsToAutoClose(tabs, { now: NOW, days: 7 }).map((t) => t.id), [1, 3]);
+  assert.deepEqual(tabsToAutoClose([acTab(1, 20)], { now: NOW, days: 7 }), []);
+});
+
+test('tabsToAutoClose: 日数や now が不正なら何も閉じない', () => {
+  const tabs = [acTab(1, 0, { active: true }), acTab(2, 100)];
+  for (const days of [NaN, -1, 0, 0.001, '', null, undefined, 'abc', Infinity]) {
+    assert.deepEqual(tabsToAutoClose(tabs, { now: NOW, days }), [], String(days));
+  }
+  assert.deepEqual(tabsToAutoClose(tabs, { now: NaN, days: 7 }), []);
+  assert.deepEqual(tabsToAutoClose(null, { now: NOW, days: 7 }), []);
+  // 小数（動作確認用）は有効
+  assert.deepEqual(tabsToAutoClose([acTab(1, 0, { active: true }), acTab(2, 0.02)], { now: NOW, days: 0.01 }).map((t) => t.id), [2]);
+});
+
+test('parseAutoCloseDays: 0.01 以上の有限数だけを受け付ける', () => {
+  assert.equal(parseAutoCloseDays(7), 7);
+  assert.equal(parseAutoCloseDays('0.5'), 0.5);
+  assert.equal(parseAutoCloseDays(0.01), 0.01);
+  for (const v of [0, -3, NaN, Infinity, '', ' ', 'x', null, undefined, true, {}]) assert.equal(parseAutoCloseDays(v), null, String(v));
+});
+
+test('normalizeAutoClose: 不正な項目は fallback（既定 OFF・7 日）で補う', () => {
+  assert.deepEqual(normalizeAutoClose(undefined), { enabled: false, days: 7 });
+  assert.deepEqual(normalizeAutoClose('x'), { enabled: false, days: 7 });
+  assert.deepEqual(normalizeAutoClose({ enabled: true }), { enabled: true, days: 7 });
+  assert.deepEqual(normalizeAutoClose({ enabled: 'yes', days: -1 }), { enabled: false, days: 7 });
+  assert.deepEqual(normalizeAutoClose({ days: NaN }, { enabled: true, days: 3 }), { enabled: true, days: 3 });
+  assert.deepEqual(normalizeAutoClose({ enabled: false, days: '14' }), { enabled: false, days: 14 });
+});
+
+test('normalizeState: 旧データ（autoClose なし）に既定値を補完し、既定値オブジェクトを共有しない', () => {
+  const st = normalizeState({ settings: { lazyRestore: false }, workspaces: { w1: { name: 'A', tabs: [] } } });
+  assert.deepEqual(st.settings.autoClose, { enabled: false, days: 7 });
+  assert.equal(st.settings.lazyRestore, false);
+  assert.equal(st.workspaces.w1.autoClose, null);
+  assert.notEqual(st.settings.autoClose, DEFAULT_SETTINGS.autoClose);
+  st.settings.autoClose.enabled = true;
+  assert.deepEqual(DEFAULT_SETTINGS.autoClose, { enabled: false, days: 7 });
+  assert.equal(Object.isFrozen(DEFAULT_SETTINGS.autoClose), true);
+});
+
+test('normalizeState: 壊れた autoClose を正規化する（グローバル・ワークスペースの上書き）', () => {
+  const st = normalizeState({
+    settings: { autoClose: { enabled: true, days: 'abc' } },
+    workspaces: {
+      a: { name: 'A', autoClose: { enabled: true, days: -5 } },
+      b: { name: 'B', autoClose: 'x' },
+      c: { name: 'C', autoClose: { enabled: false, days: 2 } },
+      d: { name: 'D' },
+    },
+  });
+  assert.deepEqual(st.settings.autoClose, { enabled: true, days: 7 });
+  assert.deepEqual(st.workspaces.a.autoClose, { enabled: true, days: 7 });
+  assert.equal(st.workspaces.b.autoClose, null);
+  assert.deepEqual(st.workspaces.c.autoClose, { enabled: false, days: 2 });
+  assert.equal(st.workspaces.d.autoClose, null);
+  assert.deepEqual(defaultState().settings.autoClose, { enabled: false, days: 7 });
+});
+
+test('normalizeAutoCloseOverride: null はグローバルに従う、不正な日数は fallback を使う', () => {
+  assert.equal(normalizeAutoCloseOverride(null), null);
+  assert.equal(normalizeAutoCloseOverride(undefined), null);
+  assert.deepEqual(normalizeAutoCloseOverride({ enabled: true, days: 3 }), { enabled: true, days: 3 });
+  assert.deepEqual(normalizeAutoCloseOverride({ enabled: true, days: NaN }, { enabled: false, days: 2 }), { enabled: true, days: 2 });
+  assert.deepEqual(normalizeAutoCloseOverride({ days: 5 }), { enabled: false, days: 5 });
+});
+
+test('effectiveAutoClose: ワークスペースの上書きがあればそれ、無ければグローバル設定', () => {
+  const settings = { autoClose: { enabled: true, days: 7 } };
+  assert.deepEqual(effectiveAutoClose(settings, null), { enabled: true, days: 7 });
+  assert.deepEqual(effectiveAutoClose(settings, { autoClose: null }), { enabled: true, days: 7 });
+  assert.deepEqual(effectiveAutoClose(settings, { autoClose: { enabled: false, days: 7 } }), { enabled: false, days: 7 });
+  assert.deepEqual(effectiveAutoClose({ autoClose: { enabled: false, days: 7 } }, { autoClose: { enabled: true, days: 1 } }), { enabled: true, days: 1 });
+  assert.deepEqual(effectiveAutoClose({}, undefined), { enabled: false, days: 7 });
+});
+
+test('isAutoCloseActive: グローバル ON か、いずれかのワークスペースの上書きが ON', () => {
+  assert.equal(isAutoCloseActive(defaultState()), false);
+  assert.equal(isAutoCloseActive({ settings: { autoClose: { enabled: true, days: 7 } }, workspaces: {} }), true);
+  assert.equal(isAutoCloseActive({
+    settings: { autoClose: { enabled: false, days: 7 } },
+    workspaces: { a: { autoClose: null }, b: { autoClose: { enabled: true, days: 3 } } },
+  }), true);
+  assert.equal(isAutoCloseActive({
+    settings: { autoClose: { enabled: false, days: 7 } },
+    workspaces: { a: { autoClose: { enabled: false, days: 3 } } },
+  }), false);
 });

@@ -2,7 +2,7 @@
 // ここの関数は serialize() の中から呼ばれる前提（内部で serialize を呼ばない＝デッドロック防止）。
 import {
   uid, COLORS, normalizeIcon, snapshotTabs, tabUrl, isBlankUrl, isRestorableUrl,
-  matchWindowsToWorkspaces, missingTabs, planRestore, workspacesUsingSession,
+  matchWindowsToWorkspaces, missingTabs, planRestore, workspacesUsingSession, normalizeAutoCloseOverride,
 } from './core.js';
 import { loadState, saveState, mutate, getBindings, setBinding, clearBindings, windowForWorkspace } from './store.js';
 import { enqueueDiscard, cancelDiscard } from './memory.js';
@@ -305,6 +305,10 @@ export async function updateWorkspace(id, patch) {
     }
     // 使うセッションの付け替え（ワークスペースの並び順は変わらない）
     if (patch.sessionId && state.sessions[patch.sessionId]) ws.sessionId = patch.sessionId;
+    // タブの自動クローズの上書き（null = グローバル設定に従う）。日数が不正なら今の値を保つ
+    if ('autoClose' in patch) {
+      ws.autoClose = normalizeAutoCloseOverride(patch.autoClose, ws.autoClose || state.settings.autoClose);
+    }
   });
   if (renamed) await renameManagedFolder(renamed.folderId, renamed.name);
 }

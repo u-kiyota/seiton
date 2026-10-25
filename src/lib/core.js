@@ -15,6 +15,12 @@ export const DEFAULT_SETTINGS = {
 
 export const COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
 
+/** ワークスペース色名 → hex（UI のドット・アイコン背景と、ツールバーアイコンの描画で共用） */
+export const COLOR_HEX = {
+  grey: '#5f6368', blue: '#1a73e8', red: '#d93025', yellow: '#f9ab00', green: '#188038',
+  pink: '#d01884', purple: '#a142f4', cyan: '#007b83', orange: '#fa903e',
+};
+
 /** ワークスペースのアイコン候補（絵文字）をグループ分けしたもの。これ以外の絵文字も入力できる。未設定なら色のドットを表示 */
 export const ICON_GROUPS = [
   { label: '一般', icons: ['💼', '🏠', '📚', '🎨', '💬', '📊', '🌐', '🛒', '🎮', '✈️', '🎵', '🧠', '⭐', '🔥'] },
@@ -337,4 +343,62 @@ export function findBookmarkByUrl(items, url) {
   const want = normalizeUrlForMatch(url);
   if (!want) return null;
   return (items || []).find((it) => it?.url && normalizeUrlForMatch(it.url) === want) || null;
+}
+
+// ---- ツールバー（action）のアイコン / タイトルで今のワークスペースを示す ----
+
+export const INDICATOR_TITLE_PREFIX = 'seiton — ';
+export const UNASSIGNED_INDICATOR_TITLE = `${INDICATOR_TITLE_PREFIX}未割り当て（クイックパレット）`;
+
+/** 文字列の先頭 1 文字（書記素）。サロゲートペアや結合文字を壊さないよう Intl.Segmenter があればそれを使う */
+export function firstGrapheme(str) {
+  const s = typeof str === 'string' ? str.trim() : '';
+  if (!s) return '';
+  if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+    const first = new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(s)[Symbol.iterator]().next();
+    if (!first.done) return first.value.segment;
+  }
+  return Array.from(s)[0];
+}
+
+/**
+ * ツールバーアイコンに描く内容とホバーのタイトル。
+ * ws が無い（未割り当て）なら { text: '', emoji: false, color: null, title: 未割り当て } を返し、呼び出し側は既定アイコンに戻す。
+ * text は絵文字アイコン（emoji: true）、無ければ名前の先頭 1 文字（名前が空なら '?'）
+ */
+export function indicatorLabel(ws, sessionName) {
+  if (!ws) return { text: '', emoji: false, color: null, title: UNASSIGNED_INDICATOR_TITLE };
+  const name = typeof ws.name === 'string' ? ws.name.trim() : '';
+  const icon = normalizeIcon(ws.icon);
+  const session = typeof sessionName === 'string' ? sessionName.trim() : '';
+  return {
+    text: icon || firstGrapheme(name) || '?',
+    emoji: !!icon,
+    color: COLOR_HEX[ws.color] || COLOR_HEX.grey,
+    title: `${INDICATOR_TITLE_PREFIX}${name || '(名前なし)'}${session ? `（${session}）` : ''}`,
+  };
+}
+
+/** bindings（windowId → workspaceId）の新旧で、対応先が変わった windowId（数値）を返す */
+export function changedBindingWindows(oldBindings, newBindings) {
+  const a = oldBindings && typeof oldBindings === 'object' ? oldBindings : {};
+  const b = newBindings && typeof newBindings === 'object' ? newBindings : {};
+  const ids = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...ids].filter((k) => (a[k] || null) !== (b[k] || null)).map(Number).filter(Number.isFinite);
+}
+
+/**
+ * 保存状態のうちツールバー表示に関わる部分（ワークスペースの名前・色・アイコン・セッション、セッション名）だけの署名。
+ * state はタブの変化のたびに保存されるので、これが変わったときだけ全ウィンドウを再描画する
+ */
+export function indicatorSignature(rawState) {
+  const st = rawState && typeof rawState === 'object' ? rawState : {};
+  const workspaces = st.workspaces && typeof st.workspaces === 'object' ? st.workspaces : {};
+  const sessions = st.sessions && typeof st.sessions === 'object' ? st.sessions : {};
+  const ws = Object.keys(workspaces).sort().map((id) => {
+    const w = workspaces[id] || {};
+    return [id, w.name ?? '', w.color ?? '', w.icon ?? '', w.sessionId ?? ''];
+  });
+  const ss = Object.keys(sessions).sort().map((id) => [id, sessions[id]?.name ?? '']);
+  return JSON.stringify([ws, ss]);
 }

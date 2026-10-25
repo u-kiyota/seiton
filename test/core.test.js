@@ -5,7 +5,76 @@ import {
   neighborWorkspace, normalizeState, defaultState, matchesQuery, planRestore, isManagerUrl, managerPopupBounds,
   workspacesUsingSession, normalizeIcon, ICONS, ICON_GROUPS,
   TAB_DRAG_TYPE, isBookmarkableUrl, firstUriFromList, parseTabDragData, findBookmarkByUrl,
+  COLORS, COLOR_HEX, firstGrapheme, indicatorLabel, changedBindingWindows, indicatorSignature, UNASSIGNED_INDICATOR_TITLE,
 } from '../src/lib/core.js';
+
+test('COLOR_HEX: 全ての色名に hex がある', () => {
+  for (const c of COLORS) assert.match(COLOR_HEX[c], /^#[0-9a-f]{6}$/);
+});
+
+test('firstGrapheme: サロゲートペア・結合文字・ZWJ 絵文字を壊さない', () => {
+  assert.equal(firstGrapheme('案件A'), '案');
+  assert.equal(firstGrapheme('  abc'), 'a');
+  assert.equal(firstGrapheme('𠮷野家'), '𠮷');
+  assert.equal(firstGrapheme('éx'), 'é');
+  assert.equal(firstGrapheme('👨‍👩‍👧 家族'), '👨‍👩‍👧');
+  assert.equal(firstGrapheme(''), '');
+  assert.equal(firstGrapheme(null), '');
+});
+
+test('indicatorLabel: 絵文字があればそれ、無ければ名前の先頭 1 文字、名前も空なら ?', () => {
+  assert.deepEqual(indicatorLabel({ name: '案件A', color: 'blue', icon: '💼' }, 'AWS 本番'), {
+    text: '💼', emoji: true, color: COLOR_HEX.blue, title: 'seiton — 案件A（AWS 本番）',
+  });
+  const noIcon = indicatorLabel({ name: 'research', color: 'red', icon: '' }, 'デフォルト');
+  assert.equal(noIcon.text, 'r');
+  assert.equal(noIcon.emoji, false);
+  assert.equal(noIcon.color, COLOR_HEX.red);
+  assert.equal(noIcon.title, 'seiton — research（デフォルト）');
+  const empty = indicatorLabel({ name: '  ', color: 'nope' }, '');
+  assert.equal(empty.text, '?');
+  assert.equal(empty.color, COLOR_HEX.grey, '不明な色は grey');
+  assert.equal(empty.title, 'seiton — (名前なし)', 'セッション名が無ければ括弧を付けない');
+  assert.equal(indicatorLabel({ name: 'x', icon: 'a b' }, 's').emoji, false, '不正なアイコンは未設定扱い');
+});
+
+test('indicatorLabel: 未割り当て', () => {
+  const l = indicatorLabel(null);
+  assert.equal(l.title, UNASSIGNED_INDICATOR_TITLE);
+  assert.equal(l.title, 'seiton — 未割り当て（クイックパレット）');
+  assert.equal(l.color, null);
+  assert.equal(l.text, '');
+});
+
+test('changedBindingWindows: 新旧の差分の windowId', () => {
+  assert.deepEqual(changedBindingWindows({ 1: 'a', 2: 'b' }, { 1: 'a', 2: 'c', 3: 'd' }).sort(), [2, 3]);
+  assert.deepEqual(changedBindingWindows({ 1: 'a' }, {}), [1]);
+  assert.deepEqual(changedBindingWindows(undefined, { 5: 'x' }), [5]);
+  assert.deepEqual(changedBindingWindows({ 1: 'a' }, { 1: 'a' }), []);
+});
+
+test('indicatorSignature: タブだけの変更では変わらず、名前・色・アイコン・セッション名で変わる', () => {
+  const base = defaultState();
+  base.workspaces.w1 = { id: 'w1', name: 'A', color: 'blue', icon: '', sessionId: base.sessionOrder[0], tabs: [] };
+  const sig = indicatorSignature(base);
+  const clone = () => JSON.parse(JSON.stringify(base));
+  const tabsOnly = clone();
+  tabsOnly.workspaces.w1.tabs = [{ url: 'https://a' }];
+  tabsOnly.lastFocusedWorkspaceId = 'w1';
+  assert.equal(indicatorSignature(tabsOnly), sig);
+  for (const mut of [
+    (s) => { s.workspaces.w1.name = 'B'; },
+    (s) => { s.workspaces.w1.color = 'red'; },
+    (s) => { s.workspaces.w1.icon = '💼'; },
+    (s) => { s.sessions[s.sessionOrder[0]].name = '別名'; },
+    (s) => { delete s.workspaces.w1; },
+  ]) {
+    const s = clone();
+    mut(s);
+    assert.notEqual(indicatorSignature(s), sig);
+  }
+  assert.equal(typeof indicatorSignature(undefined), 'string');
+});
 
 test('snapshotTabs: 並び順・グループ・除外 URL', () => {
   const tabs = [

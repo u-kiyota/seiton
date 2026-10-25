@@ -16,7 +16,10 @@ import {
   AUTO_DISCARD_ALARM, configureAutoDiscard, runAutoDiscard, discardInactiveInWindow,
   onTabMaybeDiscardable, flushDiscardQueue, forgetDiscard,
 } from './lib/memory.js';
-import { isBookmarkableUrl, findBookmarkByUrl } from './lib/core.js';
+import { isBookmarkableUrl, findBookmarkByUrl, changedBindingWindows, indicatorSignature } from './lib/core.js';
+import {
+  refreshWindowIndicator, refreshAllIndicators, refreshTabIndicator, scheduleTabIndicator,
+} from './lib/indicator.js';
 
 // ---- タブ変更 → 所属ワークスペースへのスナップショット（デバウンス） ----
 
@@ -32,8 +35,13 @@ function scheduleSnapshot(windowId) {
   }, 400));
 }
 
-chrome.tabs.onCreated.addListener((tab) => scheduleSnapshot(tab.windowId));
+chrome.tabs.onCreated.addListener((tab) => {
+  scheduleSnapshot(tab.windowId);
+  refreshWindowIndicator(tab.windowId);
+});
 chrome.tabs.onUpdated.addListener((id, info, tab) => {
+  // ページ遷移でタブ単位のアイコン / タイトルが消えることがあるので、その都度「今のワークスペース」を再適用する
+  if (info.status === 'loading' || info.status === 'complete' || info.url) scheduleTabIndicator(id, tab.windowId);
   // title 単体の変化（チャットの未読数など）では保存しない。タイトルは読み込み完了時に拾う
   if ('url' in info || 'pinned' in info || 'groupId' in info || info.status === 'complete') {
     scheduleSnapshot(tab.windowId);
@@ -41,7 +49,10 @@ chrome.tabs.onUpdated.addListener((id, info, tab) => {
   if (info.url || info.status === 'complete' || info.audible === false) onTabMaybeDiscardable(id).catch(() => {});
 });
 chrome.tabs.onMoved.addListener((_id, info) => scheduleSnapshot(info.windowId));
-chrome.tabs.onAttached.addListener((_id, info) => scheduleSnapshot(info.newWindowId));
+chrome.tabs.onAttached.addListener((_id, info) => {
+  scheduleSnapshot(info.newWindowId);
+  refreshWindowIndicator(info.newWindowId);
+});
 chrome.tabs.onDetached.addListener((_id, info) => scheduleSnapshot(info.oldWindowId));
 chrome.tabs.onRemoved.addListener((id, info) => {
   forgetDiscard(id).catch(() => {});
@@ -54,6 +65,7 @@ chrome.tabs.onReplaced.addListener(async (addedTabId) => {
   try {
     const tab = await chrome.tabs.get(addedTabId);
     scheduleSnapshot(tab.windowId);
+    refreshWindowIndicator(tab.windowId);
   } catch { /* 既に閉じられた */ }
 });
 chrome.tabGroups.onUpdated.addListener((group) => scheduleSnapshot(group.windowId));
@@ -67,6 +79,32 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
   serialize(() => onWindowFocused(windowId));
 });
 
+// ---- ツールバーのアイコン / タイトル（今のワークスペース表示） ----
+// bindings を書き換える箇所は多数あるので、storage の変更をこの 1 箇所で拾って再適用する。
+// 再適用は読み取りのみなので serialize() の外で行う（切替処理の後ろで待たされないように）
+
+let indicatorAllTimer;
+function scheduleAllIndicators() {
+  clearTimeout(indicatorAllTimer);
+  indicatorAllTimer = setTimeout(() => { refreshAllIndicators(); }, 200);
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'session' && changes.bindings) {
+    for (const wid of changedBindingWindows(changes.bindings.oldValue, changes.bindings.newValue)) {
+      refreshWindowIndicator(wid);
+    }
+  }
+  // state はタブの変化のたびに保存されるので、名前・色・アイコン・セッション名が変わったときだけ全体を再適用する
+  if (area === 'local' && changes.state
+    && indicatorSignature(changes.state.oldValue) !== indicatorSignature(changes.state.newValue)) {
+    scheduleAllIndicators();
+  }
+});
+
+// サービスワーカーの起動（再起動・再読み込み）時にも一度適用する
+refreshAllIndicators();
+
 // ---- 起動・インストール ----
 
 const GUIDE_PAGE = 'src/ui/guide.html';
@@ -77,7 +115,7 @@ chrome.runtime.onStartup.addListener(() => {
     await configureAutoDiscard(state.settings);
     await flushDiscardQueue();
     await reconcileWindows({ restoreLastIfBlank: true });
-  });
+  }).finally(() => refreshAllIndicators());
 });
 
 chrome.runtime.onInstalled.addListener((details) => {
@@ -93,7 +131,7 @@ chrome.runtime.onInstalled.addListener((details) => {
     await flushDiscardQueue();
     // 拡張の再読み込み・更新時は storage.session が消えるので、ウィンドウとの対応付けをやり直す
     await reconcileWindows({ restoreLastIfBlank: false });
-  });
+  }).finally(() => refreshAllIndicators());
 });
 
 // ---- ブックマーク ----
@@ -196,7 +234,8 @@ function flashBadge(tabId, text, title) {
   chrome.action.setTitle({ title: `seiton: ${title}`, tabId }).catch(() => {});
   setTimeout(() => {
     chrome.action.setBadgeText({ text: '', tabId }).catch(() => {});
-    chrome.action.setTitle({ title: chrome.runtime.getManifest().action.default_title, tabId }).catch(() => {});
+    // ツールチップは manifest の既定ではなく、このタブのウィンドウの「今のワークスペース」表示に戻す
+    refreshTabIndicator(tabId);
   }, text === '!' ? 4000 : 1500);
 }
 

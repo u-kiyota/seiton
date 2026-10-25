@@ -1,4 +1,5 @@
 // UI → サービスワーカーへの呼び出しと、DOM 生成の小さなヘルパー。
+import { COLOR_HEX } from '../lib/core.js';
 
 export async function call(type, payload = {}) {
   const res = await chrome.runtime.sendMessage({ type, ...payload });
@@ -33,10 +34,8 @@ export function faviconUrl(pageUrl) {
   return u.toString();
 }
 
-export const COLOR_HEX = {
-  grey: '#5f6368', blue: '#1a73e8', red: '#d93025', yellow: '#f9ab00', green: '#188038',
-  pink: '#d01884', purple: '#a142f4', cyan: '#007b83', orange: '#fa903e',
-};
+// 色の hex 表は core.js に一本化（サービスワーカーのツールバーアイコン描画と共用）。既存の import 元を変えないよう再 export する
+export { COLOR_HEX };
 
 /**
  * ワークスペースのアイコン要素。icon（絵文字）があれば色の薄い背景にアイコン、無ければ色のドット。

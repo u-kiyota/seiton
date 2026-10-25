@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_SETTINGS, normalizeState, snapshotTabs, isWorkspaceTabUrl, isManagerUrl, WORKSPACE_TAB_PAGE,
   workspaceTabGroupProps, workspaceTabIndex, pickWorkspaceTab, isOwnWorkspaceGroup, workspaceGroupPatch,
-  workspaceTabEnabled, COLORS,
+  workspaceTabEnabled, COLORS, tabsToAutoClose,
 } from '../src/lib/core.js';
 
 const WS_URL = `chrome-extension://abcdefghijklmnop/${WORKSPACE_TAB_PAGE}`;
@@ -97,4 +97,15 @@ test('snapshotTabs: ワークスペースタブとそのグループは保存し
   assert.deepEqual(Object.keys(snap.groups), ['g7']);
   assert.equal(snap.groups.g9, undefined);
   assert.deepEqual(snapshotTabs([tabs[0]], groups), { tabs: [], groups: {} }, 'ワークスペースタブだけなら空（呼び出し側は上書きしない）');
+});
+
+test('tabsToAutoClose: ワークスペースタブは閉じず、普通のタブを最低 1 枚残す（ワークスペースタブは数えない）', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = 100 * DAY;
+  const tabs = [
+    { id: 1, index: 0, url: WS_URL, lastAccessed: now - 30 * DAY, active: true },
+    { id: 2, index: 1, url: 'https://a/', lastAccessed: now - 20 * DAY },
+    { id: 3, index: 2, url: 'https://b/', lastAccessed: now - 10 * DAY },
+  ];
+  assert.deepEqual(tabsToAutoClose(tabs, { now, days: 7 }).map((t) => t.id), [2], '最後に使った普通のタブ 3 は残す');
 });

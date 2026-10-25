@@ -1,6 +1,6 @@
 import {
   tabUrl, normalizeUrlForMatch, isManagerUrl, isWorkspaceTabUrl, workspacesUsingSession, matchesQuery, ICON_GROUPS, ICONS, normalizeIcon,
-  TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl,
+  TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl, workspaceHotkey, hotkeyToIndex,
 } from '../lib/core.js';
 import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt } from './api.js';
 
@@ -286,6 +286,27 @@ function renderEditor(ws) {
     bmKey = '';
   }));
 
+  // タブの自動クローズ: 設定に従う（null）/ 無効 / 有効（日数）
+  const globalAc = state.settings.autoClose || { enabled: false, days: 7 };
+  const ac = ws.autoClose || null;
+  const acDaysValue = ac?.days ?? globalAc.days;
+  const saveAutoClose = (autoClose) => attempt(() => call('updateWorkspace', { id: ws.id, patch: { autoClose } }));
+  const acMode = h('select', { class: 'grow' },
+    h('option', { value: '', selected: !ac }, `設定に従う（${globalAc.enabled ? `有効・${globalAc.days} 日` : '無効'}）`),
+    h('option', { value: 'off', selected: !!ac && !ac.enabled }, '無効'),
+    h('option', { value: 'on', selected: !!ac?.enabled }, '有効'));
+  acMode.addEventListener('change', () => saveAutoClose(acMode.value ? { enabled: acMode.value === 'on', days: acDaysValue } : null));
+  const acDays = h('input', { type: 'number', min: '0.01', step: 'any', value: String(acDaysValue), style: { width: '80px' } });
+  acDays.addEventListener('change', () => {
+    const days = Number(acDays.value);
+    if (acDays.value === '' || !Number.isFinite(days) || days < 0.01) {
+      toast('日数は 0.01 以上の数値で入力してください', true);
+      acDays.value = String(acDaysValue);
+      return;
+    }
+    saveAutoClose({ enabled: true, days });
+  });
+
   const order = state.workspaceOrder;
   const idx = order.indexOf(ws.id);
 
@@ -295,6 +316,8 @@ function renderEditor(ws) {
     h('div', { class: 'row' }, h('span', { class: 'edit-label' }, 'アイコン'), icon),
     h('label', {}, h('span', {}, '使うセッション'), session),
     h('label', {}, h('span', {}, 'ブックマーク'), folderSel),
+    h('label', { title: '長期間使っていないタブを自動で閉じるか（設定画面の値をこのワークスペースだけ上書き）' }, h('span', {}, '自動クローズ'), acMode),
+    ac?.enabled ? h('label', {}, h('span', {}, '閉じるまで'), acDays, h('span', { class: 'muted small' }, '日（最後に使ってから）')) : null,
     h('div', { class: 'row' },
       h('button', {
         type: 'button', title: 'Workspaces フォルダの下にこのワークスペース用のフォルダを作って接続',
@@ -328,7 +351,7 @@ function renderList() {
     return;
   }
   const showSession = state.sessionOrder.length > 1;
-  list.replaceChildren(...state.workspaceOrder.map((id) => {
+  list.replaceChildren(...state.workspaceOrder.map((id, index) => {
     const ws = state.workspaces[id];
     const openIn = windowOf(id);
     const here = bindings[windowId] === id;
@@ -337,6 +360,7 @@ function renderList() {
       title: here ? 'このウィンドウで開いています' : openIn != null ? 'クリックで開いているウィンドウへ移動' : 'クリックでこのウィンドウに開く',
       onclick: () => onRowClick(id),
     },
+      workspaceHotkey(index) ? h('span', { class: 'badge hotkey', title: `${workspaceHotkey(index)} キーで切替（Shift で新しいウィンドウ）` }, workspaceHotkey(index)) : null,
       wsIcon(ws),
       h('span', { class: 'grow ellipsis' }, ws.name),
       showSession ? h('span', { class: 'ws-session', title: `使うセッション: ${sessionName(ws.sessionId)}` }, sessionName(ws.sessionId)) : null,
@@ -992,6 +1016,24 @@ document.addEventListener('keydown', (e) => {
   e.preventDefault();
   $('search').focus();
   $('search').select();
+});
+// 番号キー 1〜9 / 0 でワークスペースへ切替（Shift で新しいウィンドウ）。入力欄では発火しない（空の検索ボックスのみ例外）
+document.addEventListener('keydown', (e) => {
+  if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.altKey || e.metaKey) return;
+  // Shift 併用時は e.key が '!' などになるので e.code（Digit / Numpad）から数字を取る
+  const m = /^(?:Digit|Numpad)([0-9])$/.exec(e.code || '');
+  const key = m ? m[1] : e.key;
+  const index = hotkeyToIndex(key);
+  if (index == null) return;
+  const t = e.target;
+  const editable = t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
+  if (editable && !(t === $('search') && !t.value)) return;
+  if (editingId || document.querySelector('dialog[open]')) return;
+  const id = data?.state?.workspaceOrder[index];
+  if (!id) return;
+  e.preventDefault();
+  if (e.shiftKey) openNewWindow(id);
+  else switchHere(id);
 });
 // パネルが表示されたとき、他に入力中でなければ検索ボックスへ
 document.addEventListener('visibilitychange', () => {

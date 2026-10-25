@@ -1,7 +1,8 @@
 // サービスワーカー: Chrome のイベントを受けて状態を更新する唯一の書き手。
 // UI（管理パネル / ポップアップ / オプション）は runtime.sendMessage 経由でここに依頼する。
 import {
-  shouldRouteBookmark, neighborWorkspace, tabUrl, normalizeState, isManagerUrl, isWorkspaceTabUrl, workspaceTabEnabled,
+  shouldRouteBookmark, neighborWorkspace, tabUrl, normalizeState, isManagerUrl, normalizeAutoClose,
+  isWorkspaceTabUrl, workspaceTabEnabled,
 } from './lib/core.js';
 import { openManager, toggleManager } from './lib/manager.js';
 import { serialize, loadState, saveState, mutate, getBindings } from './lib/store.js';
@@ -18,6 +19,8 @@ import {
   AUTO_DISCARD_ALARM, configureAutoDiscard, runAutoDiscard, discardInactiveInWindow,
   onTabMaybeDiscardable, flushDiscardQueue, forgetDiscard,
 } from './lib/memory.js';
+import { AUTO_CLOSE_ALARM, configureAutoClose, runAutoClose } from './lib/autoclose.js';
+import { forgetInheritedAccess } from './lib/access.js';
 import { isBookmarkableUrl, findBookmarkByUrl, changedBindingWindows, indicatorSignature } from './lib/core.js';
 import {
   refreshWindowIndicator, refreshAllIndicators, refreshTabIndicator, scheduleTabIndicator,
@@ -84,6 +87,7 @@ chrome.tabs.onDetached.addListener((_id, info) => {
 });
 chrome.tabs.onRemoved.addListener((id, info) => {
   forgetDiscard(id).catch(() => {});
+  forgetInheritedAccess(id).catch(() => {});
   // ウィンドウごと閉じる時はスナップショットを更新しない（ワークスペースが空で上書きされるのを防ぐ）
   if (info.isWindowClosing) return;
   scheduleSnapshot(info.windowId);
@@ -153,6 +157,7 @@ chrome.runtime.onStartup.addListener(() => {
   serialize(async () => {
     const state = await loadState();
     await configureAutoDiscard(state.settings);
+    await configureAutoClose(state);
     await flushDiscardQueue();
     await reconcileWindows({ restoreLastIfBlank: true });
   }).finally(() => {
@@ -173,6 +178,7 @@ chrome.runtime.onInstalled.addListener((details) => {
     const state = normalizeState(raw);
     await saveState(state);
     await configureAutoDiscard(state.settings);
+    await configureAutoClose(state);
     await flushDiscardQueue();
     // 拡張の再読み込み・更新時は storage.session が消えるので、ウィンドウとの対応付けをやり直す
     await reconcileWindows({ restoreLastIfBlank: false });
@@ -290,9 +296,13 @@ function flashBadge(tabId, text, title) {
 // ---- メモリ ----
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name !== AUTO_DISCARD_ALARM) return;
-  const state = await loadState();
-  await runAutoDiscard(state.settings.autoDiscardMinutes);
+  if (alarm.name === AUTO_DISCARD_ALARM) {
+    const state = await loadState();
+    await runAutoDiscard(state.settings.autoDiscardMinutes);
+  } else if (alarm.name === AUTO_CLOSE_ALARM) {
+    // ワークスペース切替と交互に走らないよう直列キューを通す
+    await serialize(async () => runAutoClose(await loadState())).catch((e) => console.warn(e));
+  }
 });
 
 // ---- UI からのメッセージ ----
@@ -341,7 +351,10 @@ const mutating = {
     if (msg.switchTo && msg.windowId !== undefined) await switchWorkspace(msg.windowId, res.workspaceId);
     return res;
   },
-  updateWorkspace: ({ id, patch }) => updateWorkspace(id, patch),
+  updateWorkspace: async ({ id, patch }) => {
+    await updateWorkspace(id, patch);
+    if (patch && 'autoClose' in patch) await configureAutoClose(await loadState());
+  },
   reorderWorkspace: ({ id, toIndex }) => reorderWorkspace(id, toIndex),
   deleteWorkspace: ({ id }) => deleteWorkspace(id),
   detachWindow: ({ windowId }) => detachWindow(windowId),
@@ -377,19 +390,26 @@ const mutating = {
   saveCurrentTab: ({ windowId }) => saveCurrentTab(windowId),
   discardInactive: ({ windowId }) => discardInactiveInWindow(windowId),
   updateSettings: async ({ patch }) => {
-    const settings = await mutate((state) => {
+    const state = await mutate((state) => {
+      const prevAutoClose = state.settings.autoClose;
       Object.assign(state.settings, patch);
       state.settings.autoDiscardMinutes = Math.max(0, Number(state.settings.autoDiscardMinutes) || 0);
       state.settings.workspaceTab = state.settings.workspaceTab !== false;
-      return state.settings;
+      // 一部の項目だけの patch も受け付け、不正な日数（NaN・負など）は今の値を保つ
+      if (patch && 'autoClose' in patch) {
+        state.settings.autoClose = normalizeAutoClose({ ...prevAutoClose, ...patch.autoClose }, prevAutoClose);
+      }
+      return state;
     });
-    await configureAutoDiscard(settings);
-    return settings;
+    await configureAutoDiscard(state.settings);
+    await configureAutoClose(state);
+    return state.settings;
   },
   importData: async ({ data }) => {
     const state = normalizeState(data);
     await saveState(state);
     await configureAutoDiscard(state.settings);
+    await configureAutoClose(state);
     await reconcileWindows({ restoreLastIfBlank: false });
     await ensureAllWorkspaceTabs({ prune: true });
   },

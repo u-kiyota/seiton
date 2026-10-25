@@ -8,7 +8,7 @@ import {
   COLORS, COLOR_HEX, firstGrapheme, indicatorLabel, changedBindingWindows, indicatorSignature, UNASSIGNED_INDICATOR_TITLE,
   workspaceHotkey, hotkeyToIndex,
   DEFAULT_SETTINGS, parseAutoCloseDays, normalizeAutoClose, normalizeAutoCloseOverride, effectiveAutoClose,
-  isAutoCloseActive, tabsToAutoClose,
+  isAutoCloseActive, tabsToAutoClose, effectiveLastAccessed,
 } from '../src/lib/core.js';
 
 test('COLOR_HEX: 全ての色名に hex がある', () => {
@@ -444,4 +444,62 @@ test('isAutoCloseActive: グローバル ON か、いずれかのワークスペ
     settings: { autoClose: { enabled: false, days: 7 } },
     workspaces: { a: { autoClose: { enabled: false, days: 3 } } },
   }), false);
+});
+
+test('effectiveLastAccessed: 復元後に一度も前面になっていないタブは保存時の値を引き継ぐ', () => {
+  const restoredAt = NOW - 1000;
+  const inherited = { saved: NOW - 10 * DAY, restoredAt };
+  // 作成時刻（復元時刻 + 猶予以内）のまま → 保存時の値
+  assert.equal(effectiveLastAccessed({ lastAccessed: restoredAt - 50 }, inherited), NOW - 10 * DAY);
+  assert.equal(effectiveLastAccessed({ lastAccessed: restoredAt + 1000 }, inherited), NOW - 10 * DAY);
+  assert.equal(effectiveLastAccessed({}, inherited), NOW - 10 * DAY);
+  // 復元後に前面にした → 自分の値
+  assert.equal(effectiveLastAccessed({ lastAccessed: restoredAt + 1001 }, inherited), restoredAt + 1001);
+  // 今アクティブなタブは使用中なので自分の値
+  assert.equal(effectiveLastAccessed({ lastAccessed: restoredAt, active: true }, inherited), restoredAt);
+  // 引き継ぎ情報が無い・壊れている
+  assert.equal(effectiveLastAccessed({ lastAccessed: 5 }, undefined), 5);
+  assert.equal(effectiveLastAccessed({ lastAccessed: 5 }, { saved: NaN, restoredAt }), 5);
+  assert.equal(effectiveLastAccessed({}, undefined), null);
+});
+
+test('tabsToAutoClose: 切替で作り直したタブは保存時の最終アクセス時刻で判定する', () => {
+  const restoredAt = NOW - 60_000;
+  const tabs = [
+    acTab(1, 0, { active: true }),
+    { id: 2, url: 'https://example.com/2', lastAccessed: restoredAt }, // 作り直したまま触っていない
+    { id: 3, url: 'https://example.com/3', lastAccessed: restoredAt + 30_000 }, // 作り直した後に前面にした
+    { id: 4, url: 'https://example.com/4', lastAccessed: restoredAt }, // 保存時も最近だった
+  ];
+  const inherited = {
+    2: { saved: NOW - 10 * DAY, restoredAt },
+    3: { saved: NOW - 10 * DAY, restoredAt },
+    4: { saved: NOW - 1 * DAY, restoredAt },
+  };
+  assert.deepEqual(tabsToAutoClose(tabs, { now: NOW, days: 7, inherited }).map((t) => t.id), [2]);
+  assert.deepEqual(tabsToAutoClose(tabs, { now: NOW, days: 7 }), []);
+});
+
+test('tabsToAutoClose: 全タブが対象のとき残す 1 枚も引き継いだ時刻で選ぶ', () => {
+  const restoredAt = NOW - 1000;
+  const tabs = [
+    { id: 1, url: 'https://example.com/1', lastAccessed: restoredAt },
+    { id: 2, url: 'https://example.com/2', lastAccessed: restoredAt },
+  ];
+  const inherited = { 1: { saved: NOW - 9 * DAY, restoredAt }, 2: { saved: NOW - 20 * DAY, restoredAt } };
+  assert.deepEqual(tabsToAutoClose(tabs, { now: NOW, days: 7, inherited }).map((t) => t.id), [2]);
+});
+
+test('snapshotTabs: lastAccessed を保存し、復元後に触っていないタブは引き継いだ値を保存する', () => {
+  const restoredAt = NOW - 1000;
+  const tabs = [
+    { id: 1, index: 0, url: 'https://a.example/', lastAccessed: NOW - 3 * DAY },
+    { id: 2, index: 1, url: 'https://b.example/', lastAccessed: restoredAt },
+    { id: 3, index: 2, url: 'https://c.example/' },
+  ];
+  const snap = snapshotTabs(tabs, {}, { 2: { saved: NOW - 10 * DAY, restoredAt } });
+  assert.equal(snap.tabs[0].lastAccessed, NOW - 3 * DAY);
+  assert.equal(snap.tabs[1].lastAccessed, NOW - 10 * DAY);
+  assert.equal('lastAccessed' in snap.tabs[2], false, '値が無ければ保存しない');
+  assert.equal(snapshotTabs(tabs).tabs[1].lastAccessed, restoredAt);
 });

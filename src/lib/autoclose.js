@@ -4,6 +4,7 @@
 // 閉じたタブは通常の tabs.onRemoved → スナップショットでワークスペースの保存内容からも外れる。
 import { effectiveAutoClose, isAutoCloseActive, tabsToAutoClose } from './core.js';
 import { getBindings } from './store.js';
+import { getInheritedAccess } from './access.js';
 import { isSwitching } from './workspace.js';
 
 export const AUTO_CLOSE_ALARM = 'auto-close';
@@ -26,6 +27,8 @@ export async function runAutoClose(state, now = Date.now()) {
   }
   const bindings = await getBindings();
   const windows = await chrome.windows.getAll({ windowTypes: ['normal'], populate: true });
+  // 切替で作り直したタブは、保存時の最終アクセス時刻を引き継いで判定する
+  const inherited = await getInheritedAccess();
   let count = 0;
   for (const win of windows) {
     // 切替中のウィンドウはタブを閉じて開き直している最中なので触らない
@@ -33,7 +36,7 @@ export async function runAutoClose(state, now = Date.now()) {
     const ws = state.workspaces[bindings[win.id]] || null;
     const { enabled, days } = effectiveAutoClose(state.settings, ws);
     if (!enabled) continue;
-    for (const tab of tabsToAutoClose(win.tabs || [], { now, days })) {
+    for (const tab of tabsToAutoClose(win.tabs || [], { now, days, inherited })) {
       try {
         await chrome.tabs.remove(tab.id);
         count++;

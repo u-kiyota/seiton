@@ -160,8 +160,9 @@ export function isBlankUrl(url) {
 /**
  * chrome.tabs.Tab[] と tabGroups を保存用スナップショットに変換する。
  * groupsById: { [groupId]: { title, color, collapsed } }
+ * inherited: { [tabId]: { saved, restoredAt } }（復元したタブが引き継ぐ最終アクセス時刻。effectiveLastAccessed 参照）
  */
-export function snapshotTabs(tabs, groupsById = {}) {
+export function snapshotTabs(tabs, groupsById = {}, inherited = {}) {
   const sorted = [...tabs].sort((a, b) => a.index - b.index);
   const groups = {};
   const out = [];
@@ -174,14 +175,18 @@ export function snapshotTabs(tabs, groupsById = {}) {
       const g = groupsById[t.groupId];
       groups[groupKey] = { title: g.title || '', color: g.color || 'grey', collapsed: !!g.collapsed };
     }
-    out.push({
+    const entry = {
       url,
       title: t.title || url,
       pinned: !!t.pinned,
       active: !!t.active,
       groupKey,
       favIconUrl: t.favIconUrl && !t.favIconUrl.startsWith('data:') ? t.favIconUrl : '',
-    });
+    };
+    // タブの自動クローズ用。開き直しても保存時の最終アクセス時刻を引き継げるように保存する
+    const lastAccessed = effectiveLastAccessed(t, inherited?.[t.id]);
+    if (lastAccessed !== null) entry.lastAccessed = lastAccessed;
+    out.push(entry);
   }
   return { tabs: out, groups };
 }
@@ -466,22 +471,45 @@ export function isAutoCloseActive(state) {
   return Object.values(state?.workspaces || {}).some((ws) => ws?.autoClose?.enabled === true);
 }
 
+/** 復元直後とみなす猶予。作成時の lastAccessed はこれ以内に収まる */
+const RESTORE_GRACE_MS = 1000;
+
+/**
+ * 自動クローズの判定・保存に使う「最終アクセス時刻」（無ければ null）。
+ * 切替で作り直したタブの tab.lastAccessed は作成時刻なので、復元後に一度も前面になっていない
+ * （lastAccessed <= restoredAt + 猶予）タブは、保存されていた値 inherited.saved を使う。
+ * 今アクティブなタブは使用中なので常に tab.lastAccessed
+ */
+export function effectiveLastAccessed(tab, inherited) {
+  const own = Number.isFinite(tab?.lastAccessed) ? tab.lastAccessed : null;
+  if (tab?.active) return own;
+  if (inherited && Number.isFinite(inherited.saved) && Number.isFinite(inherited.restoredAt)
+    && (own === null || own <= inherited.restoredAt + RESTORE_GRACE_MS)) {
+    return inherited.saved;
+  }
+  return own;
+}
+
 /**
  * 1 ウィンドウ分のタブ（tabs.query の結果）から、自動で閉じるタブを返す。
- * 最後にアクティブだった時刻（lastAccessed）から days 日以上経ったものが対象。
- * アクティブ・固定・音声再生中・拡張自身のページ・lastAccessed が無いタブは除外。
+ * 最後にアクティブだった時刻（effectiveLastAccessed）から days 日以上経ったものが対象。
+ * inherited: { [tabId]: { saved, restoredAt } }（復元したタブが引き継ぐ最終アクセス時刻）
+ * アクティブ・固定・音声再生中・拡張自身のページ・最終アクセス時刻が無いタブは除外。
  * ウィンドウが消えないよう、全タブが対象になる場合は最後に使ったタブを 1 つ残す
  */
-export function tabsToAutoClose(tabs, { now, days }) {
+export function tabsToAutoClose(tabs, { now, days, inherited = {} }) {
   const d = parseAutoCloseDays(days);
   if (d === null || !Number.isFinite(now) || !Array.isArray(tabs)) return [];
   const threshold = now - d * DAY_MS;
-  const out = tabs.filter((t) => t
-    && !t.active && !t.pinned && !t.audible
-    && !tabUrl(t).startsWith('chrome-extension://')
-    && Number.isFinite(t.lastAccessed) && t.lastAccessed <= threshold);
+  const accessed = new Map();
+  const out = tabs.filter((t) => {
+    if (!t || t.active || t.pinned || t.audible || tabUrl(t).startsWith('chrome-extension://')) return false;
+    const at = effectiveLastAccessed(t, inherited?.[t.id]);
+    accessed.set(t, at);
+    return at !== null && at <= threshold;
+  });
   if (out.length && out.length >= tabs.length) {
-    const keep = out.reduce((a, b) => (b.lastAccessed > a.lastAccessed ? b : a));
+    const keep = out.reduce((a, b) => (accessed.get(b) > accessed.get(a) ? b : a));
     return out.filter((t) => t !== keep);
   }
   return out;

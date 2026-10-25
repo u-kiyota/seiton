@@ -17,6 +17,7 @@ import {
   onTabMaybeDiscardable, flushDiscardQueue, forgetDiscard,
 } from './lib/memory.js';
 import { AUTO_CLOSE_ALARM, configureAutoClose, runAutoClose } from './lib/autoclose.js';
+import { forgetInheritedAccess } from './lib/access.js';
 import { isBookmarkableUrl, findBookmarkByUrl, changedBindingWindows, indicatorSignature } from './lib/core.js';
 import {
   refreshWindowIndicator, refreshAllIndicators, refreshTabIndicator, scheduleTabIndicator,
@@ -57,6 +58,7 @@ chrome.tabs.onAttached.addListener((_id, info) => {
 chrome.tabs.onDetached.addListener((_id, info) => scheduleSnapshot(info.oldWindowId));
 chrome.tabs.onRemoved.addListener((id, info) => {
   forgetDiscard(id).catch(() => {});
+  forgetInheritedAccess(id).catch(() => {});
   // ウィンドウごと閉じる時はスナップショットを更新しない（ワークスペースが空で上書きされるのを防ぐ）
   if (info.isWindowClosing) return;
   scheduleSnapshot(info.windowId);

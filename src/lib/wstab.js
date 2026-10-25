@@ -45,6 +45,18 @@ async function normalWindow(windowId) {
 
 const isWsTab = (t) => isWorkspaceTabUrl(tabUrl(t));
 
+// ユーザーがタブをドラッグしている間、Chrome はタブの移動・グループ化・削除を
+// 「Tabs cannot be edited right now (user may be dragging a tab)」で拒否する。
+// 失敗は握りつぶすが、その場合はドロップ後に少し待ってやり直す（回数に上限を付けてループさせない）
+const DRAG_RETRY_MS = 500;
+const MAX_DRAG_RETRIES = 10;
+const dragRetries = new Map();
+let blockedByDrag = false;
+
+function soft(e) {
+  if (/dragging|cannot be edited/i.test(String(e?.message ?? e))) blockedByDrag = true;
+}
+
 /**
  * ウィンドウのワークスペースタブを閉じる。ただしウィンドウに残っているのがワークスペースタブだけなら
  * 1 枚は閉じずに残す（閉じるとウィンドウごと閉じてしまうため）。残したタブはグループから外す（古い色ラベルを残さない）。
@@ -59,9 +71,9 @@ export async function removeWorkspaceTab(windowId) {
   const onlyWs = wsTabs.length === tabs.length;
   const { keep, close } = pickWorkspaceTab(tabs);
   const toClose = onlyWs ? close : wsTabs;
-  if (toClose.length) await chrome.tabs.remove(toClose.map((t) => t.id)).catch(() => {});
+  if (toClose.length) await chrome.tabs.remove(toClose.map((t) => t.id)).catch(soft);
   if (onlyWs && keep && keep.groupId !== undefined && keep.groupId !== -1) {
-    await chrome.tabs.ungroup(keep.id).catch(() => {});
+    await chrome.tabs.ungroup(keep.id).catch(soft);
   }
 }
 
@@ -73,7 +85,7 @@ async function applyWorkspaceTab(windowId, ws) {
   let { keep, close } = pickWorkspaceTab(tabs);
   let changed = false;
   if (close.length) {
-    await chrome.tabs.remove(close.map((t) => t.id)).catch(() => {});
+    await chrome.tabs.remove(close.map((t) => t.id)).catch(soft);
     changed = true;
   }
   if (!keep) {
@@ -82,13 +94,14 @@ async function applyWorkspaceTab(windowId, ws) {
         windowId, url: chrome.runtime.getURL(WORKSPACE_TAB_PAGE), index: workspaceTabIndex(tabs), active: false,
       });
     } catch (e) {
+      soft(e);
       console.warn('[wstab] ワークスペースタブを作れません', e);
       return;
     }
     changed = true;
   } else if (keep.pinned) {
     // 固定タブはグループに入れられないので固定を外す
-    await chrome.tabs.update(keep.id, { pinned: false }).catch(() => {});
+    await chrome.tabs.update(keep.id, { pinned: false }).catch(soft);
     changed = true;
   }
   if (changed) {
@@ -112,7 +125,7 @@ async function applyWorkspaceTab(windowId, ws) {
       } else if (group) {
         // 自分のグループに紛れ込んだ他のタブは外す（保存時に「💼 名前」のグループとして記録されないように）
         const others = members.filter((t) => t.id !== keep.id);
-        if (others.length) await chrome.tabs.ungroup(others.map((t) => t.id)).catch(() => {});
+        if (others.length) await chrome.tabs.ungroup(others.map((t) => t.id)).catch(soft);
       }
       // group が取れない（API の一時的な失敗）ときは作り直さない（作り直し → groupId 変化 → 再実行のループを避ける）
     }
@@ -120,7 +133,7 @@ async function applyWorkspaceTab(windowId, ws) {
     const known = knownGroups.get(windowId);
     if (known != null && known !== groupId) {
       const stray = tabs.filter((t) => t.groupId === known && t.id !== keep.id);
-      if (stray.length) await chrome.tabs.ungroup(stray.map((t) => t.id)).catch(() => {});
+      if (stray.length) await chrome.tabs.ungroup(stray.map((t) => t.id)).catch(soft);
     }
     if (groupId === -1) {
       try {
@@ -128,6 +141,7 @@ async function applyWorkspaceTab(windowId, ws) {
         group = null;
         fresh = true;
       } catch (e) {
+        soft(e);
         console.warn('[wstab] グループにできません（グループ無しのワークスペースタブで続行）', e);
         groupId = -1;
       }
@@ -143,6 +157,7 @@ async function applyWorkspaceTab(windowId, ws) {
         try {
           await chrome.tabGroups.update(groupId, patch);
         } catch (e) {
+          soft(e);
           console.warn('[wstab] グループを更新できません', e);
         }
       }
@@ -164,6 +179,7 @@ async function applyWorkspaceTab(windowId, ws) {
     if (groupId !== -1 && cur.groupId === groupId) await chrome.tabGroups.move(groupId, { index: target });
     else await chrome.tabs.move(keep.id, { index: target });
   } catch (e) {
+    soft(e);
     console.warn('[wstab] ワークスペースタブを移動できません', e);
   }
 }
@@ -176,6 +192,22 @@ async function applyWorkspaceTab(windowId, ws) {
  * serialize() の中で呼ぶこと
  */
 export async function ensureWorkspaceTab(windowId, { prune = false } = {}) {
+  blockedByDrag = false;
+  await ensureOnce(windowId, prune);
+  if (!blockedByDrag) {
+    dragRetries.delete(windowId);
+    return;
+  }
+  const n = (dragRetries.get(windowId) || 0) + 1;
+  if (n > MAX_DRAG_RETRIES) {
+    dragRetries.delete(windowId); // 諦める（次のタブイベントで改めて点検される）
+    return;
+  }
+  dragRetries.set(windowId, n);
+  scheduleWorkspaceTab(windowId, { prune, delay: DRAG_RETRY_MS });
+}
+
+async function ensureOnce(windowId, prune) {
   if (!(await normalWindow(windowId))) return;
   const [state, bindings] = await Promise.all([loadState(), getBindings()]);
   if (!state.settings.workspaceTab) {
@@ -209,7 +241,7 @@ export async function ensureAllWorkspaceTabs({ prune = false } = {}) {
 }
 
 /** ウィンドウ単位でデバウンスして直列キューに積む。prune は 1 回でも要求されたら次の実行で有効 */
-export function scheduleWorkspaceTab(windowId, { prune = false } = {}) {
+export function scheduleWorkspaceTab(windowId, { prune = false, delay = DEBOUNCE_MS } = {}) {
   if (!Number.isFinite(windowId) || windowId === chrome.windows.WINDOW_ID_NONE) return;
   if (prune) pendingPrune.add(windowId);
   clearTimeout(timers.get(windowId));
@@ -217,7 +249,7 @@ export function scheduleWorkspaceTab(windowId, { prune = false } = {}) {
     timers.delete(windowId);
     const p = pendingPrune.delete(windowId);
     serialize(() => ensureWorkspaceTab(windowId, { prune: p })).catch((e) => console.warn('[wstab] ensure failed', e));
-  }, DEBOUNCE_MS));
+  }, delay));
 }
 
 /** 全ウィンドウ分をデバウンスして直列キューに積む */
@@ -234,6 +266,7 @@ export function scheduleAllWorkspaceTabs({ prune = false } = {}) {
 /** ウィンドウが閉じられたときの後片付け */
 export function forgetWorkspaceTabWindow(windowId) {
   knownGroups.delete(windowId);
+  dragRetries.delete(windowId);
   clearTimeout(timers.get(windowId));
   timers.delete(windowId);
   pendingPrune.delete(windowId);

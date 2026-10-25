@@ -115,6 +115,14 @@ body {
 .hint { padding: 8px 12px 4px; color: var(--fg-sub); font-size: 12px; }
 .empty { padding: 28px 16px; text-align: center; color: var(--fg-sub); }
 
+/* 開いているタブのドラッグ＆ドロップでブックマーク登録 */
+.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent) !important;
+}
+.drop-reject { outline: 2px dashed var(--danger); outline-offset: -2px; }
+
 /* モーダル */
 dialog {
   border: 1px solid var(--border);

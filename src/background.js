@@ -16,6 +16,7 @@ import {
   AUTO_DISCARD_ALARM, configureAutoDiscard, runAutoDiscard, discardInactiveInWindow,
   onTabMaybeDiscardable, flushDiscardQueue, forgetDiscard,
 } from './lib/memory.js';
+import { isBookmarkableUrl, findBookmarkByUrl } from './lib/core.js';
 
 // ---- タブ変更 → 所属ワークスペースへのスナップショット（デバウンス） ----
 
@@ -259,6 +260,21 @@ const mutating = {
     const folderId = await createFolderForWorkspace(ws.name, state.settings);
     await updateWorkspace(workspaceId, { bookmarkFolderId: folderId, bookmarkFolderManaged: true });
     return { folderId };
+  },
+  // 管理パネルでタブをワークスペース（の接続フォルダ）へドロップした時の登録
+  addBookmarkToWorkspace: async ({ workspaceId, url, title }) => {
+    const state = await loadState();
+    const ws = state.workspaces[workspaceId];
+    if (!ws) throw new Error('ワークスペースが見つかりません');
+    if (!ws.bookmarkFolderId) throw new Error('このワークスペースにはブックマークフォルダが接続されていません');
+    if (!isBookmarkableUrl(url)) throw new Error('このページはブックマークに保存できません');
+    // サブフォルダも含めて同じ URL があれば作らない（一覧はサブフォルダも平坦化して表示しているため）
+    const existing = await listFolderBookmarks(ws.bookmarkFolderId);
+    if (!existing) throw new Error(`「${ws.name}」の接続フォルダが見つかりません`);
+    const dup = findBookmarkByUrl(existing.items, url);
+    if (dup) return { created: false, bookmarkId: dup.id, workspaceName: ws.name };
+    const res = await saveToFolder(ws.bookmarkFolderId, { url, title });
+    return { created: !res.duplicated, bookmarkId: res.bookmarkId, workspaceName: ws.name };
   },
   linkFolder: ({ workspaceId, folderId }) =>
     updateWorkspace(workspaceId, { bookmarkFolderId: folderId || null, bookmarkFolderManaged: false }),

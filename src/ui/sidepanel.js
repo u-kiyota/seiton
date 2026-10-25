@@ -286,6 +286,27 @@ function renderEditor(ws) {
     bmKey = '';
   }));
 
+  // タブの自動クローズ: 設定に従う（null）/ 無効 / 有効（日数）
+  const globalAc = state.settings.autoClose || { enabled: false, days: 7 };
+  const ac = ws.autoClose || null;
+  const acDaysValue = ac?.days ?? globalAc.days;
+  const saveAutoClose = (autoClose) => attempt(() => call('updateWorkspace', { id: ws.id, patch: { autoClose } }));
+  const acMode = h('select', { class: 'grow' },
+    h('option', { value: '', selected: !ac }, `設定に従う（${globalAc.enabled ? `有効・${globalAc.days} 日` : '無効'}）`),
+    h('option', { value: 'off', selected: !!ac && !ac.enabled }, '無効'),
+    h('option', { value: 'on', selected: !!ac?.enabled }, '有効'));
+  acMode.addEventListener('change', () => saveAutoClose(acMode.value ? { enabled: acMode.value === 'on', days: acDaysValue } : null));
+  const acDays = h('input', { type: 'number', min: '0.01', step: 'any', value: String(acDaysValue), style: { width: '80px' } });
+  acDays.addEventListener('change', () => {
+    const days = Number(acDays.value);
+    if (acDays.value === '' || !Number.isFinite(days) || days < 0.01) {
+      toast('日数は 0.01 以上の数値で入力してください', true);
+      acDays.value = String(acDaysValue);
+      return;
+    }
+    saveAutoClose({ enabled: true, days });
+  });
+
   const order = state.workspaceOrder;
   const idx = order.indexOf(ws.id);
 
@@ -295,6 +316,8 @@ function renderEditor(ws) {
     h('div', { class: 'row' }, h('span', { class: 'edit-label' }, 'アイコン'), icon),
     h('label', {}, h('span', {}, '使うセッション'), session),
     h('label', {}, h('span', {}, 'ブックマーク'), folderSel),
+    h('label', { title: '長期間使っていないタブを自動で閉じるか（設定画面の値をこのワークスペースだけ上書き）' }, h('span', {}, '自動クローズ'), acMode),
+    ac?.enabled ? h('label', {}, h('span', {}, '閉じるまで'), acDays, h('span', { class: 'muted small' }, '日（最後に使ってから）')) : null,
     h('div', { class: 'row' },
       h('button', {
         type: 'button', title: 'Workspaces フォルダの下にこのワークスペース用のフォルダを作って接続',

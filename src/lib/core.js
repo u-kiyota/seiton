@@ -11,6 +11,8 @@ export const DEFAULT_SETTINGS = {
   routeBookmarks: true,
   // ワークスペース用ブックマークフォルダを作る親フォルダ名
   bookmarkRootName: 'Workspaces',
+  // 最後に使ってから days 日以上経ったタブを自動で閉じる（既定 OFF。ワークスペースごとに ws.autoClose で上書き可。凍結: 必ず新しいオブジェクトで置き換える）
+  autoClose: Object.freeze({ enabled: false, days: 7 }),
 };
 
 export const COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
@@ -81,6 +83,7 @@ export function normalizeState(raw) {
     sessions,
     workspaces: raw.workspaces && typeof raw.workspaces === 'object' ? raw.workspaces : {},
   };
+  state.settings.autoClose = normalizeAutoClose(state.settings.autoClose);
   state.sessionOrder = (Array.isArray(raw.sessionOrder) ? raw.sessionOrder : []).filter((id) => sessions[id]);
   for (const id of Object.keys(sessions)) {
     if (!state.sessionOrder.includes(id)) state.sessionOrder.push(id);
@@ -92,6 +95,7 @@ export function normalizeState(raw) {
     ws.tabs = Array.isArray(ws.tabs) ? ws.tabs : [];
     ws.groups = ws.groups || {};
     ws.icon = normalizeIcon(ws.icon);
+    ws.autoClose = normalizeAutoCloseOverride(ws.autoClose, state.settings.autoClose);
   }
   // 並び順。v1 ではセッションごとの workspaceIds に持っていたので、セッション順に連結して引き継ぐ
   const legacyOrder = state.sessionOrder.flatMap((id) => (Array.isArray(rawSessions[id]?.workspaceIds) ? rawSessions[id].workspaceIds : []));
@@ -156,8 +160,9 @@ export function isBlankUrl(url) {
 /**
  * chrome.tabs.Tab[] と tabGroups を保存用スナップショットに変換する。
  * groupsById: { [groupId]: { title, color, collapsed } }
+ * inherited: { [tabId]: { saved, restoredAt } }（復元したタブが引き継ぐ最終アクセス時刻。effectiveLastAccessed 参照）
  */
-export function snapshotTabs(tabs, groupsById = {}) {
+export function snapshotTabs(tabs, groupsById = {}, inherited = {}) {
   const sorted = [...tabs].sort((a, b) => a.index - b.index);
   const groups = {};
   const out = [];
@@ -170,14 +175,18 @@ export function snapshotTabs(tabs, groupsById = {}) {
       const g = groupsById[t.groupId];
       groups[groupKey] = { title: g.title || '', color: g.color || 'grey', collapsed: !!g.collapsed };
     }
-    out.push({
+    const entry = {
       url,
       title: t.title || url,
       pinned: !!t.pinned,
       active: !!t.active,
       groupKey,
       favIconUrl: t.favIconUrl && !t.favIconUrl.startsWith('data:') ? t.favIconUrl : '',
-    });
+    };
+    // タブの自動クローズ用。開き直しても保存時の最終アクセス時刻を引き継げるように保存する
+    const lastAccessed = effectiveLastAccessed(t, inherited?.[t.id]);
+    if (lastAccessed !== null) entry.lastAccessed = lastAccessed;
+    out.push(entry);
   }
   return { tabs: out, groups };
 }
@@ -415,4 +424,93 @@ export function workspaceHotkey(index) {
 export function hotkeyToIndex(key) {
   if (typeof key !== 'string' || !/^[0-9]$/.test(key)) return null;
   return (Number(key) + 9) % 10;
+}
+
+// ---- タブの自動クローズ ----
+
+/** 自動クローズまでの日数の下限（動作確認用に小数も受け付ける。0.01 日 ≒ 14.4 分） */
+export const AUTO_CLOSE_MIN_DAYS = 0.01;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** 日数として有効なら数値、無効（NaN・負・下限未満・数値でない）なら null */
+export function parseAutoCloseDays(v) {
+  if (v === null || v === undefined || v === '' || typeof v === 'boolean') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= AUTO_CLOSE_MIN_DAYS ? n : null;
+}
+
+/** { enabled, days } に正規化した新しいオブジェクトを返す。不正な項目は fallback の値を使う */
+export function normalizeAutoClose(v, fallback = DEFAULT_SETTINGS.autoClose) {
+  const fb = {
+    enabled: typeof fallback?.enabled === 'boolean' ? fallback.enabled : DEFAULT_SETTINGS.autoClose.enabled,
+    days: parseAutoCloseDays(fallback?.days) ?? DEFAULT_SETTINGS.autoClose.days,
+  };
+  if (!v || typeof v !== 'object') return fb;
+  return {
+    enabled: typeof v.enabled === 'boolean' ? v.enabled : fb.enabled,
+    days: parseAutoCloseDays(v.days) ?? fb.days,
+  };
+}
+
+/** ワークスペースごとの上書き。null（= グローバル設定に従う）か { enabled, days } */
+export function normalizeAutoCloseOverride(v, fallback = DEFAULT_SETTINGS.autoClose) {
+  if (!v || typeof v !== 'object') return null;
+  return normalizeAutoClose({ enabled: !!v.enabled, days: v.days }, fallback);
+}
+
+/** ワークスペース（未割り当てなら null）に実際に適用される自動クローズ設定 */
+export function effectiveAutoClose(settings, ws) {
+  const global = normalizeAutoClose(settings?.autoClose);
+  const override = normalizeAutoCloseOverride(ws?.autoClose, global);
+  return override || global;
+}
+
+/** グローバル設定かいずれかのワークスペースの上書きが ON なら、アラームを張る必要がある */
+export function isAutoCloseActive(state) {
+  if (normalizeAutoClose(state?.settings?.autoClose).enabled) return true;
+  return Object.values(state?.workspaces || {}).some((ws) => ws?.autoClose?.enabled === true);
+}
+
+/** 復元直後とみなす猶予。作成時の lastAccessed はこれ以内に収まる */
+const RESTORE_GRACE_MS = 1000;
+
+/**
+ * 自動クローズの判定・保存に使う「最終アクセス時刻」（無ければ null）。
+ * 切替で作り直したタブの tab.lastAccessed は作成時刻なので、復元後に一度も前面になっていない
+ * （lastAccessed <= restoredAt + 猶予）タブは、保存されていた値 inherited.saved を使う。
+ * 今アクティブなタブは使用中なので常に tab.lastAccessed
+ */
+export function effectiveLastAccessed(tab, inherited) {
+  const own = Number.isFinite(tab?.lastAccessed) ? tab.lastAccessed : null;
+  if (tab?.active) return own;
+  if (inherited && Number.isFinite(inherited.saved) && Number.isFinite(inherited.restoredAt)
+    && (own === null || own <= inherited.restoredAt + RESTORE_GRACE_MS)) {
+    return inherited.saved;
+  }
+  return own;
+}
+
+/**
+ * 1 ウィンドウ分のタブ（tabs.query の結果）から、自動で閉じるタブを返す。
+ * 最後にアクティブだった時刻（effectiveLastAccessed）から days 日以上経ったものが対象。
+ * inherited: { [tabId]: { saved, restoredAt } }（復元したタブが引き継ぐ最終アクセス時刻）
+ * アクティブ・固定・音声再生中・拡張自身のページ・最終アクセス時刻が無いタブは除外。
+ * ウィンドウが消えないよう、全タブが対象になる場合は最後に使ったタブを 1 つ残す
+ */
+export function tabsToAutoClose(tabs, { now, days, inherited = {} }) {
+  const d = parseAutoCloseDays(days);
+  if (d === null || !Number.isFinite(now) || !Array.isArray(tabs)) return [];
+  const threshold = now - d * DAY_MS;
+  const accessed = new Map();
+  const out = tabs.filter((t) => {
+    if (!t || t.active || t.pinned || t.audible || tabUrl(t).startsWith('chrome-extension://')) return false;
+    const at = effectiveLastAccessed(t, inherited?.[t.id]);
+    accessed.set(t, at);
+    return at !== null && at <= threshold;
+  });
+  if (out.length && out.length >= tabs.length) {
+    const keep = out.reduce((a, b) => (accessed.get(b) > accessed.get(a) ? b : a));
+    return out.filter((t) => t !== keep);
+  }
+  return out;
 }

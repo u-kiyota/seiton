@@ -2,10 +2,11 @@
 // ここの関数は serialize() の中から呼ばれる前提（内部で serialize を呼ばない＝デッドロック防止）。
 import {
   uid, COLORS, normalizeIcon, snapshotTabs, tabUrl, isBlankUrl, isRestorableUrl,
-  matchWindowsToWorkspaces, missingTabs, planRestore, workspacesUsingSession,
+  matchWindowsToWorkspaces, missingTabs, planRestore, workspacesUsingSession, normalizeAutoCloseOverride,
 } from './core.js';
 import { loadState, saveState, mutate, getBindings, setBinding, clearBindings, windowForWorkspace } from './store.js';
 import { enqueueDiscard, cancelDiscard } from './memory.js';
+import { rememberInheritedAccess, getInheritedAccess } from './access.js';
 import { createFolderForWorkspace, renameManagedFolder } from './bookmarks.js';
 
 // 自分でタブを作成・削除している最中のウィンドウ。この間のスナップショットは抑止する
@@ -49,7 +50,7 @@ export async function snapshotWindow(windowId) {
   const state = await loadState();
   const ws = state.workspaces[wsId];
   if (!ws) return;
-  const snap = snapshotTabs(data.tabs, data.groupsById);
+  const snap = snapshotTabs(data.tabs, data.groupsById, await getInheritedAccess());
   // 変化が無ければ書き込まない（storage.onChanged → UI 再描画の連鎖を防ぐ）
   if (JSON.stringify(snap.tabs) === JSON.stringify(ws.tabs) && JSON.stringify(snap.groups) === JSON.stringify(ws.groups)) return;
   ws.tabs = snap.tabs;
@@ -97,6 +98,8 @@ async function restoreTabs(windowId, ws, settings, anchorId = null) {
       lastId = tab.id;
       if (i === plan.activeIndex) activeTabId = tab.id;
       if (t.groupKey && !t.pinned) (groupMembers[t.groupKey] ||= []).push(tab.id);
+      // 前面にしないタブは、保存時の最終アクセス時刻を引き継ぐ（自動クローズの判定用）
+      if (i !== plan.activeIndex) await rememberInheritedAccess(tab.id, t.lastAccessed);
       // 前面にしないタブは URL 確定後に休止する。確定前はキューに残る
       if (settings.lazyRestore && i !== plan.activeIndex) await enqueueDiscard([tab.id]);
     } catch (e) {
@@ -305,6 +308,10 @@ export async function updateWorkspace(id, patch) {
     }
     // 使うセッションの付け替え（ワークスペースの並び順は変わらない）
     if (patch.sessionId && state.sessions[patch.sessionId]) ws.sessionId = patch.sessionId;
+    // タブの自動クローズの上書き（null = グローバル設定に従う）。日数が不正なら今の値を保つ
+    if ('autoClose' in patch) {
+      ws.autoClose = normalizeAutoCloseOverride(patch.autoClose, ws.autoClose || state.settings.autoClose);
+    }
   });
   if (renamed) await renameManagedFolder(renamed.folderId, renamed.name);
 }
@@ -439,6 +446,7 @@ export async function reconcileWindows({ restoreLastIfBlank }) {
         try {
           const tab = await createInactiveTab(windowId, { url: t.url, pinned: !!t.pinned }, anchorId);
           added.push(tab.id);
+          await rememberInheritedAccess(tab.id, t.lastAccessed);
         } catch { /* 開けない URL は飛ばす */ }
       }
       // 起動時の補完は既存の前面タブを維持し、足したタブは読み込まない

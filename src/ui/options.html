@@ -23,6 +23,13 @@
     .exclude-row input { flex: 1; min-width: 0; }
     .exclude-empty { color: var(--fg-sub); font-size: 12px; padding: 2px 0; }
     #excludeAdd input { min-width: 0; }
+    .cookie-status { margin: 10px 0 6px; font-size: 13px; }
+    .cookie-status table { border-collapse: collapse; width: 100%; margin-top: 6px; }
+    .cookie-status th, .cookie-status td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); font-weight: normal; vertical-align: top; }
+    .cookie-status th { color: var(--fg-sub); font-size: 12px; white-space: nowrap; }
+    .cookie-status .now { font-weight: 600; }
+    .cookie-status .hosts { color: var(--fg-sub); font-size: 12px; }
+    #cookieSession { max-width: 260px; }
   </style>
 </head>
 <body>
@@ -82,6 +89,27 @@
       <input id="excludePattern" type="text" class="grow" placeholder="例: github.com / mail.google.com/mail / https://example.com/docs" autocomplete="off">
       <button type="submit">追加</button>
     </form>
+  </div>
+
+  <h2>セッション（Cookie / ログイン状態の分離）</h2>
+  <div class="field">
+    <label><input id="cookieIsolation" type="checkbox"> セッションごとに Cookie（ログイン状態）を分ける</label>
+    <div class="desc">
+      ON にすると、別のセッションを使うワークスペースに切り替えるとき、今の Cookie をそのセッション用に退避してすべて消し、切替先のセッションの Cookie を復元します
+      （Chrome のプロファイルを切り替えるのに近い動き）。同じサイトに別のアカウントでログインしたままセッションごとに使い分けられます。
+      Chrome 全体で同時に使えるセッションは 1 つで、切替は他のウィンドウにも及びます（別のセッションのワークスペースを開いているウィンドウは、次の読み込みから切替先のログイン状態になります）。
+      Cookie を読み書きする権限（すべてのサイト）が必要で、ON にするときに Chrome が確認を出します。localStorage などサイト側の他の保存領域は分けません。
+      退避した Cookie はこの拡張の保存領域（<code>chrome.storage.local</code>）に平文で保存され、エクスポートには含まれません。
+    </div>
+  </div>
+  <div class="field" id="cookieEnableField">
+    <label>今 Chrome にあるログイン状態はどのセッションのもの？ <select id="cookieSession"></select></label>
+    <div class="desc">ON にした時点の Cookie をこのセッションのものとして扱います。他のセッションは空（未ログイン）の状態から始まり、そのセッションのワークスペースでログインすると、以後そのセッション用に保たれます。</div>
+  </div>
+  <div id="cookieStatus" class="cookie-status"></div>
+  <div class="row">
+    <span id="clearCookieSlot"></span>
+    <span class="muted small">退避した Cookie だけを消します（今 Chrome に入っている Cookie は消しません）。OFF にしても退避した Cookie は残り、再度 ON にすれば続きから使えます。</span>
   </div>
 
   <h2>ブックマーク</h2>

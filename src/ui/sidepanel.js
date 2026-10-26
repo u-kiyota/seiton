@@ -256,8 +256,10 @@ function renderEditor(ws) {
   const session = h('select', { class: 'grow' }, state.sessionOrder.map((id) =>
     h('option', { value: id, selected: id === ws.sessionId }, state.sessions[id].name)));
   session.addEventListener('change', () => attempt(async () => {
-    await call('updateWorkspace', { id: ws.id, patch: { sessionId: session.value } });
-    toast(`セッション「${state.sessions[session.value].name}」を使うようにしました`);
+    const res = await call('updateWorkspace', { id: ws.id, patch: { sessionId: session.value } });
+    toast(res?.cookieSession
+      ? `セッション「${state.sessions[session.value].name}」を使うようにし、Cookie を入れ替えてページを読み込み直しました`
+      : `セッション「${state.sessions[session.value].name}」を使うようにしました`);
   }));
 
   const folderSel = h('select', { class: 'grow' },
@@ -685,14 +687,16 @@ $('createForm').addEventListener('submit', (e) => {
   const keep = !data.bindings[windowId] && $('createKeep').checked;
   $('createDialog').close();
   const create = async () => {
-    const { workspaceId } = await call('createWorkspace', keep
+    const { workspaceId, cookieSession } = await call('createWorkspace', keep
       ? { name, sessionId, icon, ...folderOpts, fromWindowId: windowId }
       : { name, sessionId, icon, ...folderOpts, switchTo: true, windowId });
     selectedId = workspaceId;
     editingId = null;
     folders = null;
     bmKey = '';
-    toast(keep ? `「${name}」として保存しました` : `「${name}」を作成しました`);
+    toast(keep
+      ? (cookieSession ? `「${name}」として保存し、Cookie をセッション「${cookieSession.toName}」に入れ替えました` : `「${name}」として保存しました`)
+      : `「${name}」を作成しました`);
     return windowId;
   };
   // 今のタブを引き継ぐだけなら移動しないのでパネルは開いたまま。新しいワークスペースへ切り替えるときは切替後に閉じる
@@ -701,9 +705,25 @@ $('createForm').addEventListener('submit', (e) => {
 
 // ---- モーダル: セッション管理 ----
 
-function renderSessionDialog() {
+async function renderSessionDialog() {
   const { state } = data;
   const list = $('sessionList');
+  // Cookie の分離の状態（issue #12）。取れなくても一覧は出す
+  let cookie = null;
+  try {
+    cookie = await call('getCookieStatus');
+  } catch { /* 表示だけなので無視 */ }
+  const isolating = !!(cookie?.enabled && cookie.permitted);
+  $('sessionCookieNote').textContent = isolating
+    ? `Cookie の分離: ON。別のセッションのワークスペースに切り替えると、Cookie（ログイン状態）をそのセッションのものに入れ替えます（全ウィンドウに及びます）。今の Cookie: 「${state.sessions[cookie.cookieSessionId]?.name || '不明'}」`
+    : 'Cookie の分離: OFF（セッションはラベルだけです）。設定画面の「セッション」で ON にすると、セッションごとにログイン状態を分けられます。';
+  const cookieBadge = (id) => {
+    if (!isolating) return null;
+    if (id === cookie.cookieSessionId) return h('span', { class: 'badge here', title: '今 Chrome に入っている Cookie はこのセッションのものです' }, '🍪 今の Cookie');
+    const jar = cookie.jars[id];
+    return h('span', { class: 'muted small', title: jar ? `退避した Cookie: ${jar.count} 件（${new Date(jar.savedAt).toLocaleString()}）` : '退避した Cookie はありません（切り替えると未ログインの状態から始まります）' },
+      jar ? `🍪 ${jar.count}` : '🍪 なし');
+  };
   list.replaceChildren(...state.sessionOrder.map((id) => {
     const s = state.sessions[id];
     const users = workspacesUsingSession(state, id);
@@ -711,6 +731,7 @@ function renderSessionDialog() {
     name.addEventListener('change', () => attempt(() => call('renameSession', { id, name: name.value })));
     return h('div', { class: 'sess-row' },
       name,
+      cookieBadge(id),
       h('span', { class: 'muted small', title: users.map((w) => state.workspaces[w].name).join('\n') || 'このセッションを使うワークスペースはありません' },
         `${users.length} WS`),
       h('button', {
@@ -718,9 +739,11 @@ function renderSessionDialog() {
         onclick: () => attempt(() => moveAway(() => call('openSessionWindows', { sessionId: id }))),
       }, '全て開く'),
       confirmButton('削除', '本当に削除？', () => attempt(async () => {
-        await call('deleteSession', { id });
-        toast('削除しました（使っていたワークスペースは別のセッションに付け替えました）');
-      }), { disabled: state.sessionOrder.length <= 1, title: state.sessionOrder.length <= 1 ? '最後のセッションは削除できません' : '削除（ワークスペースは消えません）' }),
+        const res = await call('deleteSession', { id });
+        toast(res?.cookieSession
+          ? `削除しました（Cookie をセッション「${res.cookieSession.toName}」に入れ替え、ワークスペースも付け替えました）`
+          : '削除しました（使っていたワークスペースは別のセッションに付け替えました）');
+      }), { disabled: state.sessionOrder.length <= 1, title: state.sessionOrder.length <= 1 ? '最後のセッションは削除できません' : (isolating ? '削除（ワークスペースは消えません。退避した Cookie は消えます）' : '削除（ワークスペースは消えません）') }),
     );
   }));
 }

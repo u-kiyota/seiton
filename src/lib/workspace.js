@@ -8,6 +8,7 @@ import { loadState, saveState, mutate, getBindings, setBinding, clearBindings, w
 import { enqueueDiscard, cancelDiscard } from './memory.js';
 import { rememberInheritedAccess, getInheritedAccess } from './access.js';
 import { createFolderForWorkspace, renameManagedFolder } from './bookmarks.js';
+import { ensureCookieSession, needsCookieSwap, getCookieSessionId, isolationActive, swapCookies, forgetSessionJar } from './cookies.js';
 
 // 自分でタブを作成・削除している最中のウィンドウ。この間のスナップショットは抑止する
 const switchingWindows = new Set();
@@ -179,26 +180,40 @@ export async function switchWorkspace(windowId, targetId) {
     if (current.some((t) => isRestorableUrl(tabUrl(t)) && !isBlankUrl(tabUrl(t)))) {
       const d = new Date();
       const name = `未整理 ${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
-      await createWorkspace({ name, sessionId: state.workspaces[targetId].sessionId, fromWindowId: windowId });
+      // Cookie の入れ替えはこの後の切替で行う（ここで入れ替えると、閉じる直前のタブを読み込み直すことになる）
+      await createWorkspace({ name, sessionId: state.workspaces[targetId].sessionId, fromWindowId: windowId, adoptCookies: false });
       bindings = await getBindings();
     }
   }
   await snapshotWindow(windowId);
   switchingWindows.add(windowId);
+  let cookieSession = null;
   try {
     const current = await chrome.tabs.query({ windowId });
     // ワークスペースタブは閉じずに残す（切替後にグループのタイトル / 色だけが新しいワークスペースのものになる）
     const oldTabs = current.filter((t) => !isWorkspaceTabUrl(tabUrl(t)));
+    const oldIds = oldTabs.map((t) => t.id);
     // アンカーは今前面のタブ（ワークスペースタブのページから切り替えたならそれ）。前面が無ければ普通のタブを優先する
     // （折りたたんだワークスペースタブを前面に固定するとグループが開いてしまうため）
     const anchorId = current.find((t) => t.active)?.id ?? oldTabs[0]?.id ?? current[0]?.id ?? null;
     const fresh = await loadState();
-    // 先に新しいタブを作り、最後に古いタブを消す（最後のタブを消すとウィンドウが閉じるため）
-    const { created } = await restoreTabs(windowId, fresh.workspaces[targetId], fresh.settings, anchorId);
-    const oldIds = oldTabs.map((t) => t.id);
-    // 空のワークスペースでは、閉じる前に新しいタブを 1 枚足す
-    if (!created) await chrome.tabs.create({ windowId, active: true });
-    if (oldIds.length) await chrome.tabs.remove(oldIds).catch(() => {});
+    const target = fresh.workspaces[targetId];
+    if (await needsCookieSwap(fresh, target.sessionId)) {
+      // セッションが変わるとき（Cookie の分離が ON）: 前のセッションのページが Cookie を書き足して切替先に混ざらないよう、
+      // 古いタブを先に閉じてから Cookie を入れ替え、それから切替先のタブを開く。ウィンドウは空白タブで保つ
+      const blank = await chrome.tabs.create({ windowId, url: 'about:blank', active: true });
+      if (oldIds.length) await chrome.tabs.remove(oldIds).catch(() => {});
+      cookieSession = await ensureCookieSession(fresh, target.sessionId);
+      const { created } = await restoreTabs(windowId, target, fresh.settings, blank.id);
+      if (!created) await chrome.tabs.create({ windowId, active: true });
+      await chrome.tabs.remove(blank.id).catch(() => {});
+    } else {
+      // 先に新しいタブを作り、最後に古いタブを消す（最後のタブを消すとウィンドウが閉じるため）
+      const { created } = await restoreTabs(windowId, target, fresh.settings, anchorId);
+      // 空のワークスペースでは、閉じる前に新しいタブを 1 枚足す
+      if (!created) await chrome.tabs.create({ windowId, active: true });
+      if (oldIds.length) await chrome.tabs.remove(oldIds).catch(() => {});
+    }
     await setBinding(windowId, targetId);
     rememberOpened(fresh, targetId);
     await saveState(fresh);
@@ -206,7 +221,7 @@ export async function switchWorkspace(windowId, targetId) {
     switchingWindows.delete(windowId);
   }
   await snapshotWindow(windowId);
-  return { windowId };
+  return { windowId, cookieSession };
 }
 
 /** 新しいウィンドウでワークスペースを開く */
@@ -222,6 +237,7 @@ export async function openInNewWindow(targetId) {
   }
   const win = await chrome.windows.create({ focused: true });
   switchingWindows.add(win.id);
+  let cookieSession = null;
   try {
     let placeholder = win.tabs?.[0]?.id;
     if (placeholder == null) {
@@ -229,6 +245,8 @@ export async function openInNewWindow(targetId) {
       placeholder = front?.id;
     }
     const state = await loadState();
+    // 切替先のセッションの Cookie に入れ替えてからタブを開く（新しいウィンドウには前のセッションのページが無い）
+    cookieSession = await ensureCookieSession(state, state.workspaces[targetId].sessionId);
     const { activeTabId } = await restoreTabs(win.id, state.workspaces[targetId], state.settings, placeholder ?? null);
     // 初期の空タブは、復元したタブが別にできたときだけ閉じる
     if (placeholder != null && activeTabId != null && placeholder !== activeTabId) {
@@ -241,15 +259,33 @@ export async function openInNewWindow(targetId) {
     switchingWindows.delete(win.id);
   }
   await snapshotWindow(win.id);
-  return { windowId: win.id };
+  return { windowId: win.id, cookieSession };
+}
+
+/**
+ * 開いているウィンドウのワークスペースが使うセッションを変えたとき（✎ での変更・今のタブからの作成）に、
+ * 今の Cookie をそのセッションのものに入れ替え、開いているページを読み込み直す（新しいログイン状態を反映する）。
+ * 分離が OFF、または既にそのセッションの Cookie なら何もしない
+ */
+async function adoptSessionInWindow(windowId, state, sessionId) {
+  const res = await ensureCookieSession(state, sessionId);
+  if (!res) return null;
+  try {
+    for (const t of await chrome.tabs.query({ windowId })) {
+      // 休止中のタブは次に開いたときに読み込まれる。拡張のページ（ワークスペースタブ等）は Cookie を使わない
+      if (t.discarded || isWorkspaceTabUrl(tabUrl(t)) || !isRestorableUrl(tabUrl(t))) continue;
+      await chrome.tabs.reload(t.id).catch(() => {});
+    }
+  } catch { /* ウィンドウが閉じられた */ }
+  return res;
 }
 
 /**
  * ワークスペースを作成。sessionId はこのワークスペースが使うセッション（省略時は先頭のセッション）。
- * fromWindowId を渡すとそのウィンドウの現在のタブをそのまま新ワークスペースにする。
+ * fromWindowId を渡すとそのウィンドウの現在のタブをそのまま新ワークスペースにする（adoptCookies: false で Cookie の入れ替えを省く）。
  * ブックマークは createFolder（新規作成して接続）か bookmarkFolderId（既存フォルダを接続）のどちらか
  */
-export async function createWorkspace({ name, sessionId, color, icon, fromWindowId, createFolder, bookmarkFolderId }) {
+export async function createWorkspace({ name, sessionId, color, icon, fromWindowId, createFolder, bookmarkFolderId, adoptCookies = true }) {
   const id = uid('ws_');
   const state = await loadState();
   const sid = state.sessions[sessionId] ? sessionId : state.sessionOrder[0];
@@ -286,6 +322,7 @@ export async function createWorkspace({ name, sessionId, color, icon, fromWindow
   state.workspaceOrder.push(id);
   await saveState(state);
 
+  let cookieSession = null;
   if (fromWindowId !== undefined && fromWindowId !== null) {
     const bindings = await getBindings();
     if (!bindings[fromWindowId]) {
@@ -293,14 +330,17 @@ export async function createWorkspace({ name, sessionId, color, icon, fromWindow
       await setBinding(fromWindowId, id);
       await mutate((s) => rememberOpened(s, id));
       await snapshotWindow(fromWindowId);
+      // 「今開いているタブをこのワークスペースにする」で別のセッションを選んだときは、Cookie もそのセッションのものにして読み込み直す
+      if (adoptCookies) cookieSession = await adoptSessionInWindow(fromWindowId, state, sid);
     }
   }
-  return { workspaceId: id };
+  return { workspaceId: id, cookieSession };
 }
 
 export async function updateWorkspace(id, patch) {
   let renamed = null;
-  await mutate((state) => {
+  let sessionChanged = null;
+  const state = await mutate((state) => {
     const ws = state.workspaces[id];
     if (!ws) return;
     if (typeof patch.name === 'string' && patch.name.trim()) {
@@ -314,13 +354,24 @@ export async function updateWorkspace(id, patch) {
       ws.bookmarkFolderManaged = !!patch.bookmarkFolderManaged;
     }
     // 使うセッションの付け替え（ワークスペースの並び順は変わらない）
-    if (patch.sessionId && state.sessions[patch.sessionId]) ws.sessionId = patch.sessionId;
+    if (patch.sessionId && state.sessions[patch.sessionId] && ws.sessionId !== patch.sessionId) {
+      ws.sessionId = patch.sessionId;
+      sessionChanged = patch.sessionId;
+    }
     // タブの自動クローズの上書き（null = グローバル設定に従う）。日数が不正なら今の値を保つ
     if ('autoClose' in patch) {
       ws.autoClose = normalizeAutoCloseOverride(patch.autoClose, ws.autoClose || state.settings.autoClose);
     }
+    return state;
   });
   if (renamed) await renameManagedFolder(renamed.folderId, renamed.name);
+  // 開いているワークスペースのセッションを変えたら、今の Cookie もそのセッションのものに入れ替える（分離が ON のとき）
+  let cookieSession = null;
+  if (sessionChanged) {
+    const win = await windowForWorkspace(id);
+    if (win !== null) cookieSession = await adoptSessionInWindow(win, state, sessionChanged);
+  }
+  return { cookieSession };
 }
 
 /** 全体の並び順の中で位置を変える */
@@ -374,22 +425,35 @@ export async function renameSession(id, name) {
 
 /** セッションを削除。このセッションを使っていたワークスペースは移動先セッションを使うように付け替える（ワークスペースは消さない） */
 export async function deleteSession(id, moveToId) {
+  const before = await loadState();
+  if (before.sessionOrder.length <= 1 || !before.sessions[id]) return { cookieSession: null };
+  const dest = before.sessions[moveToId] && moveToId !== id ? moveToId : before.sessionOrder.find((s) => s !== id);
+  // 今の Cookie が消すセッションのものなら、移動先セッションの Cookie に入れ替えてから消す（消したセッションの Cookie は捨てる）
+  let cookieSession = null;
+  if (await isolationActive(before) && await getCookieSessionId() === id) {
+    const res = await swapCookies(id, dest);
+    cookieSession = { ...res, fromName: before.sessions[id].name, toName: before.sessions[dest].name };
+  }
   await mutate((state) => {
-    if (state.sessionOrder.length <= 1 || !state.sessions[id]) return;
-    const dest = state.sessions[moveToId] && moveToId !== id ? moveToId : state.sessionOrder.find((s) => s !== id);
+    if (!state.sessions[id] || !state.sessions[dest]) return;
     for (const ws of Object.values(state.workspaces)) {
       if (ws.sessionId === id) ws.sessionId = dest;
     }
     delete state.sessions[id];
     state.sessionOrder = state.sessionOrder.filter((s) => s !== id);
   });
+  await forgetSessionJar(id);
+  return { cookieSession };
 }
 
 /** セッションを使っている全ワークスペースをそれぞれ別ウィンドウで開く */
 export async function openSessionWindows(sessionId) {
   const state = await loadState();
-  if (!state.sessions[sessionId]) return;
+  if (!state.sessions[sessionId]) return { cookieSession: null };
+  // 先に Cookie をこのセッションのものにしてから開く（各ウィンドウでは入れ替え不要になる）
+  const cookieSession = await ensureCookieSession(state, sessionId);
   for (const wid of workspacesUsingSession(state, sessionId)) await openInNewWindow(wid);
+  return { cookieSession };
 }
 
 // ---- 起動時の復元 ----

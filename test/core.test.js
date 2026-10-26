@@ -11,7 +11,77 @@ import {
   isAutoCloseActive, tabsToAutoClose, autoCloseDaysFrom, autoCloseDuration, formatAutoCloseDuration, effectiveLastAccessed,
   CLOSED_TABS_MAX, trimClosedTabs, closedTabEntry, closedDayLabel, formatClockTime,
   normalizeExcludePattern, normalizeExcludePatterns, matchesExcludePattern, autoCloseExcludeMatch, excludePatternsForUrl,
+  cookieUrl, cookieSetDetails, cookieRemoveDetails, cookieKey, isExpiredCookie, dedupeCookies, normalizeCookieJar, cookieHosts,
 } from '../src/lib/core.js';
+
+// ---- セッションごとの Cookie の分離（issue #12） ----
+
+test('DEFAULT_SETTINGS / normalizeState: cookieIsolation は既定 OFF で、true 以外は false に揃える', () => {
+  assert.equal(DEFAULT_SETTINGS.cookieIsolation, false);
+  assert.equal(normalizeState(undefined).settings.cookieIsolation, false);
+  assert.equal(normalizeState({ settings: { cookieIsolation: true } }).settings.cookieIsolation, true);
+  assert.equal(normalizeState({ settings: { cookieIsolation: 'yes' } }).settings.cookieIsolation, false);
+});
+
+test('cookieUrl: secure なら https、ドメイン Cookie の先頭の . は外し、パスを付ける', () => {
+  assert.equal(cookieUrl({ domain: '.example.com', path: '/app', secure: true }), 'https://example.com/app');
+  assert.equal(cookieUrl({ domain: 'example.com', path: '/', secure: false }), 'http://example.com/');
+  assert.equal(cookieUrl({ domain: 'example.com' }), 'http://example.com/', 'パスが無ければ /');
+});
+
+test('cookieSetDetails: hostOnly は domain を渡さず、セッション Cookie は expirationDate を付けない', () => {
+  const host = cookieSetDetails({
+    name: 'sid', value: 'v', domain: 'github.com', hostOnly: true, path: '/', secure: true, httpOnly: true,
+    session: false, expirationDate: 1234567890, sameSite: 'lax', storeId: '0',
+  });
+  assert.deepEqual(host, {
+    url: 'https://github.com/', name: 'sid', value: 'v', path: '/', secure: true, httpOnly: true,
+    expirationDate: 1234567890, sameSite: 'lax', storeId: '0',
+  });
+  const dom = cookieSetDetails({
+    name: 'p', value: '', domain: '.example.com', hostOnly: false, path: '/x', secure: false, httpOnly: false, session: true,
+    sameSite: 'unspecified', partitionKey: { topLevelSite: 'https://top.test' },
+  });
+  assert.equal(dom.domain, '.example.com');
+  assert.equal('expirationDate' in dom, false);
+  assert.equal(dom.url, 'http://example.com/x');
+  assert.deepEqual(dom.partitionKey, { topLevelSite: 'https://top.test' });
+  assert.equal(cookieSetDetails({ name: 'n', domain: 'a.test', value: undefined }).value, '', '値が無ければ空文字');
+});
+
+test('cookieRemoveDetails: url と name（と storeId / partitionKey）だけ', () => {
+  assert.deepEqual(cookieRemoveDetails({ name: 'a', domain: '.x.test', path: '/', secure: true, storeId: '0' }),
+    { url: 'https://x.test/', name: 'a', storeId: '0' });
+  assert.deepEqual(cookieRemoveDetails({ name: 'a', domain: 'x.test', partitionKey: { topLevelSite: 'https://t.test' } }),
+    { url: 'http://x.test/', name: 'a', partitionKey: { topLevelSite: 'https://t.test' } });
+});
+
+test('cookieKey / isExpiredCookie / dedupeCookies: 同じ Cookie を 1 つにまとめ、期限切れと壊れたものを除く', () => {
+  const now = 1_700_000_000_000;
+  const a = { name: 'a', domain: 'x.test', path: '/', storeId: '0', session: false, expirationDate: now / 1000 + 10 };
+  const a2 = { ...a, value: 'newer' };
+  const expired = { name: 'e', domain: 'x.test', path: '/', session: false, expirationDate: now / 1000 - 1 };
+  const sess = { name: 's', domain: 'x.test', path: '/', session: true };
+  const part = { ...a, name: 'a', partitionKey: { topLevelSite: 'https://t.test' } };
+  assert.equal(cookieKey(a), cookieKey(a2));
+  assert.notEqual(cookieKey(a), cookieKey(part), 'partitionKey が違えば別の Cookie');
+  assert.equal(isExpiredCookie(expired, now), true);
+  assert.equal(isExpiredCookie(sess, now), false, 'セッション Cookie は期限切れにならない');
+  const out = dedupeCookies([a, a2, expired, sess, part, null, { name: 'nodomain' }, { domain: 'x.test' }], now);
+  assert.deepEqual(out.map((c) => c.name), ['a', 's', 'a']);
+  assert.equal(out[0].value, 'newer', '後のものが勝つ');
+  assert.deepEqual(dedupeCookies(undefined), []);
+});
+
+test('normalizeCookieJar / cookieHosts', () => {
+  assert.equal(normalizeCookieJar(null), null);
+  assert.equal(normalizeCookieJar('x'), null);
+  const jar = normalizeCookieJar({ savedAt: 'bad', cookies: [{ name: 'a', domain: '.g.test', path: '/' }, { name: 'b', domain: 'g.test' }, { name: 'c', domain: 'h.test' }] });
+  assert.equal(jar.savedAt, 0);
+  assert.equal(jar.cookies.length, 3);
+  assert.deepEqual(cookieHosts(jar.cookies), [{ host: 'g.test', count: 2 }, { host: 'h.test', count: 1 }], '先頭の . を外して数え、多い順・名前順');
+  assert.deepEqual(cookieHosts(null), []);
+});
 
 test('COLOR_HEX: 全ての色名に hex がある', () => {
   for (const c of COLORS) assert.match(COLOR_HEX[c], /^#[0-9a-f]{6}$/);

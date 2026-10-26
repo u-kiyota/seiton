@@ -114,11 +114,15 @@ function switchHere(id) {
   attempt(async () => {
     const res = await call('switchWorkspace', { windowId, workspaceId: id });
     if (res?.focused) toast('別のウィンドウで開いています');
+    else if (res?.cookieSession) toast(`Cookie をセッション「${res.cookieSession.toName}」に入れ替えました`);
   });
 }
 
 function openNewWindow(id) {
-  attempt(() => call('openInNewWindow', { workspaceId: id }));
+  attempt(async () => {
+    const res = await call('openInNewWindow', { workspaceId: id });
+    if (res?.cookieSession) toast(`Cookie をセッション「${res.cookieSession.toName}」に入れ替えました`);
+  });
 }
 
 async function bookmarksFor(folderId) {

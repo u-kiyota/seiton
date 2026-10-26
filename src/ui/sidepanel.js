@@ -2,7 +2,7 @@ import {
   tabUrl, normalizeUrlForMatch, isManagerUrl, isWorkspaceTabUrl, workspacesUsingSession, matchesQuery, ICON_GROUPS, ICONS, normalizeIcon,
   TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl, workspaceHotkey, hotkeyToIndex,
   autoCloseDaysFrom, autoCloseDuration, formatAutoCloseDuration, AUTO_CLOSE_UNIT_LABELS,
-  CLOSED_TABS_MAX, closedDayLabel, formatClockTime,
+  CLOSED_TABS_MAX, closedDayLabel, formatClockTime, autoCloseExcludeMatch, excludePatternsForUrl,
 } from '../lib/core.js';
 import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt, confirmButton } from './api.js';
 
@@ -598,10 +598,22 @@ function renderTabs() {
       if (gid !== -1) nodes.push(h('div', { class: 'group-label' }, groupById[gid]?.title || 'グループ'));
     }
     const url = tabUrl(t);
+    // 自動クローズの除外（issue #20）: 除外中ならバッジ（クリックで解除）、そうでなければ追加ボタン（行にマウスを乗せると出る）
+    const excluded = autoCloseExcludeMatch(url, data.state.settings.autoCloseExclude);
+    const exclude = excluded
+      ? h('span', {
+        class: 'badge excl', title: `自動クローズの対象外（除外パターン: ${excluded}）。クリックで解除`,
+        onclick: (e) => { e.stopPropagation(); removeExclude(excluded); },
+      }, '除外')
+      : url ? h('button', {
+        class: 'icon excl', type: 'button', title: '自動クローズから除外（このページ / このサイト全体）',
+        onclick: (e) => { e.stopPropagation(); openExcludeDialog(t); },
+      }, '🛡') : null;
     nodes.push(makeTabDraggable(entryRow({
       url,
       title: (t.pinned ? '📌 ' : '') + (t.title || url || '新しいタブ'),
       sub: t.discarded ? '休止中' : hostOf(url),
+      extra: exclude,
       active: t.active,
       discarded: t.discarded,
       onOpen: () => focusTab(t),
@@ -812,6 +824,47 @@ $('closedTabs').addEventListener('click', () => attempt(async () => {
 }));
 $('closedClose').addEventListener('click', () => $('closedDialog').close());
 $('closedSearch').addEventListener('input', () => renderClosedDialog());
+
+// ---- モーダル: 自動クローズから除外（issue #20） ----
+
+let excludeCandidates = { page: '', site: null };
+
+/** 開いているタブの 🛡 から。このページ / このサイト全体のどちらかを選び、必要なら書き換えて除外リストに追加する */
+function openExcludeDialog(tab) {
+  const url = tabUrl(tab);
+  excludeCandidates = excludePatternsForUrl(url);
+  $('excludeTab').textContent = tab.title || url;
+  $('excludeTab').title = url;
+  const site = $('excludeDialog').querySelector('input[name=excludeKind][value=site]');
+  site.disabled = !excludeCandidates.site;
+  $('excludeDialog').querySelector('input[name=excludeKind][value=page]').checked = true;
+  $('excludeValue').value = excludeCandidates.page;
+  $('excludeDialog').showModal();
+  $('excludeValue').focus();
+}
+
+/** 既に除外されているタブのバッジから、その除外パターンを外す */
+function removeExclude(pattern) {
+  return attempt(async () => {
+    await call('removeAutoCloseExclude', { pattern });
+    toast(`除外を解除しました: ${pattern}`);
+  });
+}
+
+for (const r of $('excludeDialog').querySelectorAll('input[name=excludeKind]')) {
+  r.addEventListener('change', () => { if (r.checked) $('excludeValue').value = excludeCandidates[r.value] || ''; });
+}
+$('excludeCancel').addEventListener('click', () => $('excludeDialog').close());
+$('excludeForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const pattern = $('excludeValue').value.trim();
+  if (!pattern) { toast('除外する URL を入力してください', true); return; }
+  attempt(async () => {
+    const res = await call('addAutoCloseExclude', { pattern });
+    $('excludeDialog').close();
+    toast(res.added ? `自動クローズから除外: ${res.pattern}` : '既に除外リストにあります');
+  });
+});
 
 // ---- 描画 ----
 

@@ -115,6 +115,12 @@ body {
 .entry .host { flex: none; max-width: 280px; font-size: 12px; }
 .entry .close { visibility: hidden; }
 .entry:hover .close, .entry.on .close { visibility: visible; }
+/* 自動クローズの除外: 追加ボタンは行にマウスを乗せたときだけ、除外中のバッジは常に表示（クリックで解除） */
+.entry button.excl { visibility: hidden; flex: none; }
+.entry:hover button.excl, .entry.on button.excl { visibility: visible; }
+.badge.excl { flex: none; cursor: pointer; border: 1px solid var(--border); }
+.badge.excl:hover { background: var(--bg-sel); color: var(--fg); }
+#excludeDialog code { background: var(--bg-sub); padding: 1px 4px; border-radius: 4px; }
 .hint { padding: 8px 12px 4px; color: var(--fg-sub); font-size: 12px; }
 .empty { padding: 28px 16px; text-align: center; color: var(--fg-sub); }
 

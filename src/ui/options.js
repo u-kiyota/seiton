@@ -15,6 +15,7 @@ async function load() {
   const dur = autoCloseDuration(s.autoClose.days);
   $('autoCloseValue').value = dur.value;
   $('autoCloseUnit').value = dur.unit;
+  setExclude(s.autoCloseExclude);
 
   const commands = await chrome.commands.getAll();
   $('commands').replaceChildren(...commands.map((c) => h('li', {},
@@ -71,6 +72,72 @@ $('importFile').addEventListener('change', (e) => attempt(async () => {
   toast('インポートしました');
   await load();
 }));
+
+// ---- 自動クローズの除外 URL（issue #20） ----
+
+let excludePatterns = [];
+
+function renderExclude() {
+  const list = $('excludeList');
+  if (!excludePatterns.length) {
+    list.replaceChildren(h('div', { class: 'exclude-empty' }, '除外する URL はまだありません。'));
+    return;
+  }
+  list.replaceChildren(...excludePatterns.map((p) => {
+    const input = h('input', { type: 'text', value: p, autocomplete: 'off', title: '書き換えて Enter（または別の場所をクリック）で更新' });
+    input.addEventListener('change', () => {
+      const v = input.value.trim();
+      if (!v) { input.value = p; return; }
+      if (v === p) return;
+      // 配列ごと置き換える（同じものが既にあれば 1 つにまとまる）
+      saveExclude(excludePatterns.map((x) => (x === p ? v : x)), '更新しました');
+    });
+    return h('div', { class: 'exclude-row' },
+      input,
+      h('button', {
+        type: 'button', class: 'icon', title: 'この除外を削除',
+        onclick: () => attempt(async () => {
+          const res = await call('removeAutoCloseExclude', { pattern: p });
+          setExclude(res.patterns);
+          toast('削除しました');
+        }),
+      }, '×'));
+  }));
+}
+
+function setExclude(list) {
+  excludePatterns = Array.isArray(list) ? list : [];
+  renderExclude();
+}
+
+function saveExclude(next, msg) {
+  attempt(async () => {
+    const s = await call('updateSettings', { patch: { autoCloseExclude: next } });
+    setExclude(s.autoCloseExclude);
+    toast(msg);
+  });
+}
+
+$('excludeAdd').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const v = $('excludePattern').value.trim();
+  if (!v) return;
+  attempt(async () => {
+    const res = await call('addAutoCloseExclude', { pattern: v });
+    $('excludePattern').value = '';
+    setExclude(res.patterns);
+    toast(res.added ? `追加しました: ${res.pattern}` : '既に登録されています');
+  });
+});
+
+// 管理パネルから追加されたものを反映する（編集中の行があるときは、その操作が終わってから）
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.state) return;
+  const next = changes.state.newValue?.settings?.autoCloseExclude;
+  if (!Array.isArray(next) || JSON.stringify(next) === JSON.stringify(excludePatterns)) return;
+  if ($('excludeList').contains(document.activeElement)) return;
+  setExclude(next);
+});
 
 // 自動クローズで閉じたタブの履歴（管理パネルを開かなくても一括削除できるように）
 const clearClosedBtn = confirmButton('閉じたタブの履歴を削除', '本当に削除？', () => attempt(async () => {

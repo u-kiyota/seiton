@@ -10,6 +10,7 @@ import {
   DEFAULT_SETTINGS, parseAutoCloseDays, normalizeAutoClose, normalizeAutoCloseOverride, effectiveAutoClose,
   isAutoCloseActive, tabsToAutoClose, autoCloseDaysFrom, autoCloseDuration, formatAutoCloseDuration, effectiveLastAccessed,
   CLOSED_TABS_MAX, trimClosedTabs, closedTabEntry, closedDayLabel, formatClockTime,
+  normalizeExcludePattern, normalizeExcludePatterns, matchesExcludePattern, autoCloseExcludeMatch, excludePatternsForUrl,
 } from '../src/lib/core.js';
 
 test('COLOR_HEX: 全ての色名に hex がある', () => {
@@ -580,4 +581,102 @@ test('closedDayLabel: 今日 / 昨日 / M/D（ローカル時刻の暦日）', (
 test('formatClockTime: HH:mm（ゼロ埋め）', () => {
   assert.equal(formatClockTime(new Date(2026, 9, 25, 9, 5).getTime()), '09:05');
   assert.equal(formatClockTime(new Date(2026, 9, 25, 23, 59).getTime()), '23:59');
+});
+
+// ---- 自動クローズの除外 URL（issue #20） ----
+
+test('normalizeExcludePatterns: 空白を除き、空と重複を捨て、順序は保つ。配列でなければ空', () => {
+  assert.deepEqual(normalizeExcludePatterns([' github.com ', 'github.com', '', '  ', 3, null, 'example.com/a']), ['github.com', 'example.com/a']);
+  assert.deepEqual(normalizeExcludePatterns('github.com'), []);
+  assert.deepEqual(normalizeExcludePatterns(undefined), []);
+  assert.equal(normalizeExcludePattern('  a  '), 'a');
+  assert.equal(normalizeExcludePattern(3), '');
+});
+
+test('matchesExcludePattern: ホストだけならサブドメインも含めて一致（大小は無視、似た別ホストには当てない）', () => {
+  assert.equal(matchesExcludePattern('https://github.com/a/b', 'github.com'), true);
+  assert.equal(matchesExcludePattern('https://api.github.com/x', 'github.com'), true);
+  assert.equal(matchesExcludePattern('https://GitHub.com/x', 'github.com'), true);
+  assert.equal(matchesExcludePattern('https://notgithub.com/', 'github.com'), false);
+  assert.equal(matchesExcludePattern('https://github.com.evil.example/', 'github.com'), false);
+  assert.equal(matchesExcludePattern('http://localhost:3000/x', 'localhost:3000'), true);
+  assert.equal(matchesExcludePattern('http://localhost:4000/x', 'localhost:3000'), false);
+  assert.equal(matchesExcludePattern('http://localhost:3000/x', 'localhost'), true);
+});
+
+test('matchesExcludePattern: ホスト + パスはパスの先頭（境界付き）に一致', () => {
+  assert.equal(matchesExcludePattern('https://mail.google.com/mail/u/0/', 'mail.google.com/mail'), true);
+  assert.equal(matchesExcludePattern('https://mail.google.com/mail', 'mail.google.com/mail'), true);
+  assert.equal(matchesExcludePattern('https://mail.google.com/mail?x=1', 'mail.google.com/mail'), true);
+  assert.equal(matchesExcludePattern('https://mail.google.com/mailbox', 'mail.google.com/mail'), false);
+  assert.equal(matchesExcludePattern('https://mail.google.com/', 'mail.google.com/'), true);
+  assert.equal(matchesExcludePattern('https://example.com/?q=1', 'example.com/?q'), true);
+  // 正規表現の特殊文字はそのまま文字として扱う
+  assert.equal(matchesExcludePattern('https://example.com/a.b/c', 'example.com/a.b'), true);
+  assert.equal(matchesExcludePattern('https://example.com/aXb/c', 'example.com/a.b'), false);
+});
+
+test('matchesExcludePattern: スキーム付きは URL 全体の前方一致（フラグメント・末尾スラッシュは無視）', () => {
+  assert.equal(matchesExcludePattern('https://example.com/a/b/c', 'https://example.com/a/b'), true);
+  assert.equal(matchesExcludePattern('https://example.com/a/b?x=1#frag', 'https://example.com/a/b'), true);
+  assert.equal(matchesExcludePattern('https://example.com/a/b/', 'https://example.com/a/b'), true);
+  assert.equal(matchesExcludePattern('https://example.com/a/bc', 'https://example.com/a/b'), false);
+  assert.equal(matchesExcludePattern('https://example.com', 'https://example.com/'), true);
+  assert.equal(matchesExcludePattern('https://example.community/', 'https://example.com'), false);
+  assert.equal(matchesExcludePattern('http://example.com/', 'https://example.com'), false);
+  assert.equal(matchesExcludePattern('file:///C:/docs/x.html', 'file:///C:/docs'), true);
+});
+
+test('matchesExcludePattern: * は任意の文字列', () => {
+  assert.equal(matchesExcludePattern('https://foo.example.com/', '*.example.com'), true);
+  assert.equal(matchesExcludePattern('https://example.com/', '*.example.com'), false);
+  assert.equal(matchesExcludePattern('https://example.com/1/edit', 'example.com/*/edit'), true);
+  assert.equal(matchesExcludePattern('https://example.com/1/view', 'example.com/*/edit'), false);
+  assert.equal(matchesExcludePattern('https://a.example.com/x', 'https://*.example.com/'), true);
+});
+
+test('matchesExcludePattern: 空・不正な入力には当てない', () => {
+  assert.equal(matchesExcludePattern('https://example.com/', ''), false);
+  assert.equal(matchesExcludePattern('https://example.com/', '   '), false);
+  assert.equal(matchesExcludePattern('https://example.com/', null), false);
+  assert.equal(matchesExcludePattern('', 'example.com'), false);
+  assert.equal(matchesExcludePattern(undefined, 'example.com'), false);
+  assert.equal(matchesExcludePattern('about:blank', 'example.com'), false);
+  assert.equal(matchesExcludePattern('not a url', 'example.com'), false);
+});
+
+test('autoCloseExcludeMatch: 当てはまる最初のパターンを返す', () => {
+  const patterns = ['github.com', 'example.com/docs'];
+  assert.equal(autoCloseExcludeMatch('https://api.github.com/', patterns), 'github.com');
+  assert.equal(autoCloseExcludeMatch('https://example.com/docs/1', patterns), 'example.com/docs');
+  assert.equal(autoCloseExcludeMatch('https://example.com/blog', patterns), null);
+  assert.equal(autoCloseExcludeMatch('https://github.com/', null), null);
+  assert.equal(autoCloseExcludeMatch('', patterns), null);
+});
+
+test('tabsToAutoClose: 除外パターンに当てはまるタブは閉じない（残る 1 枚の計算にも影響しない）', () => {
+  const tabs = [acTab(1, 30, { url: 'https://github.com/a' }), acTab(2, 30, { url: 'https://example.com/x' }), acTab(3, 30, { url: 'https://docs.example.com/y' })];
+  assert.deepEqual(tabsToAutoClose(tabs, { now: NOW, days: 7, exclude: ['github.com'] }).map((t) => t.id), [2, 3]);
+  // 除外した方が残るので、他の全タブを閉じてもウィンドウは消えない
+  assert.deepEqual(tabsToAutoClose(tabs, { now: NOW, days: 7, exclude: ['example.com'] }).map((t) => t.id), [1]);
+  // 除外が無ければ全タブが対象なので、最後に使ったタブ（同時刻なら先頭）を 1 つ残す
+  assert.deepEqual(tabsToAutoClose(tabs, { now: NOW, days: 7, exclude: [] }).map((t) => t.id), [2, 3]);
+  assert.deepEqual(tabsToAutoClose(tabs, { now: NOW, days: 7 }).map((t) => t.id), [2, 3]);
+});
+
+test('excludePatternsForUrl: このページ（フラグメント・末尾スラッシュ抜き）とサイト全体（ホスト）', () => {
+  assert.deepEqual(excludePatternsForUrl('https://example.com/a/#f'), { page: 'https://example.com/a', site: 'example.com' });
+  assert.deepEqual(excludePatternsForUrl('http://localhost:3000/'), { page: 'http://localhost:3000', site: 'localhost:3000' });
+  assert.deepEqual(excludePatternsForUrl('about:blank'), { page: 'about:blank', site: null });
+  assert.deepEqual(excludePatternsForUrl(''), { page: '', site: null });
+});
+
+test('normalizeState: autoCloseExclude の欠損・壊れた値を補い、既定の配列を共有しない', () => {
+  const a = normalizeState({ settings: {} });
+  assert.deepEqual(a.settings.autoCloseExclude, []);
+  a.settings.autoCloseExclude.push('x');
+  assert.deepEqual(normalizeState({ settings: {} }).settings.autoCloseExclude, []);
+  assert.deepEqual(DEFAULT_SETTINGS.autoCloseExclude, []);
+  assert.deepEqual(normalizeState({ settings: { autoCloseExclude: 'github.com' } }).settings.autoCloseExclude, []);
+  assert.deepEqual(normalizeState({ settings: { autoCloseExclude: [' a ', 'a', 1, ''] } }).settings.autoCloseExclude, ['a']);
 });

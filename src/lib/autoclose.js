@@ -1,6 +1,7 @@
 // タブの自動クローズ（issue #5）。
 // 最後に使ってから N 日以上経ったタブを chrome.alarms で定期的に閉じる。
 // 判定は core.js の tabsToAutoClose / effectiveAutoClose（純粋関数）に任せ、ここでは chrome API の呼び出しだけを行う。
+// settings.autoCloseExclude（除外 URL のパターン。issue #20）に当てはまるタブは閉じない。
 // 閉じたタブは通常の tabs.onRemoved → スナップショットでワークスペースの保存内容からも外れる。
 // 閉じたタブは history.js の履歴（storage.local の closedTabs）にも残す（issue #18）。
 import { effectiveAutoClose, isAutoCloseActive, tabsToAutoClose, closedTabEntry } from './core.js';
@@ -38,7 +39,7 @@ export async function runAutoClose(state, now = Date.now()) {
     const ws = state.workspaces[bindings[win.id]] || null;
     const { enabled, days } = effectiveAutoClose(state.settings, ws);
     if (!enabled) continue;
-    const targets = tabsToAutoClose(win.tabs || [], { now, days, inherited });
+    const targets = tabsToAutoClose(win.tabs || [], { now, days, inherited, exclude: state.settings.autoCloseExclude });
     if (!targets.length) continue;
     // 閉じる直前に履歴へ記録する（管理パネルの「閉じたタブ」から開き直せるように）。
     // 記録に失敗しても自動クローズ自体は止めない

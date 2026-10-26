@@ -2,7 +2,7 @@
 // UI（管理パネル / ポップアップ / オプション）は runtime.sendMessage 経由でここに依頼する。
 import {
   shouldRouteBookmark, neighborWorkspace, tabUrl, normalizeState, isManagerUrl, normalizeAutoClose,
-  isWorkspaceTabUrl, workspaceTabEnabled,
+  isWorkspaceTabUrl, workspaceTabEnabled, normalizeExcludePattern, normalizeExcludePatterns,
 } from './lib/core.js';
 import { openManager, toggleManager } from './lib/manager.js';
 import { serialize, loadState, saveState, mutate, getBindings } from './lib/store.js';
@@ -404,12 +404,30 @@ const mutating = {
       if (patch && 'autoClose' in patch) {
         state.settings.autoClose = normalizeAutoClose({ ...prevAutoClose, ...patch.autoClose }, prevAutoClose);
       }
+      // 除外 URL は配列ごと置き換える（空・重複を除く）。1 件ずつの追加 / 削除は addAutoCloseExclude / removeAutoCloseExclude
+      state.settings.autoCloseExclude = normalizeExcludePatterns(state.settings.autoCloseExclude);
       return state;
     });
     await configureAutoDiscard(state.settings);
     await configureAutoClose(state);
     return state.settings;
   },
+  // 自動クローズの除外 URL を 1 件追加（管理パネルの「自動クローズから除外」・設定画面の「追加」）。既にあれば added: false
+  addAutoCloseExclude: ({ pattern }) => mutate((state) => {
+    const p = normalizeExcludePattern(pattern);
+    if (!p) throw new Error('除外する URL を入力してください');
+    const list = state.settings.autoCloseExclude;
+    const added = !list.includes(p);
+    if (added) state.settings.autoCloseExclude = [...list, p];
+    return { added, pattern: p, patterns: state.settings.autoCloseExclude };
+  }),
+  // 自動クローズの除外 URL を 1 件削除（無ければ何もしない）
+  removeAutoCloseExclude: ({ pattern }) => mutate((state) => {
+    const p = normalizeExcludePattern(pattern);
+    const list = state.settings.autoCloseExclude;
+    state.settings.autoCloseExclude = list.filter((x) => x !== p);
+    return { removed: list.length !== state.settings.autoCloseExclude.length, patterns: state.settings.autoCloseExclude };
+  }),
   importData: async ({ data }) => {
     const state = normalizeState(data);
     await saveState(state);

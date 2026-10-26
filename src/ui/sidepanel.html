@@ -116,6 +116,26 @@
     </div>
   </dialog>
 
+  <dialog id="excludeDialog">
+    <form id="excludeForm">
+      <div class="dlg-head">自動クローズから除外</div>
+      <div class="dlg-body">
+        <div id="excludeTab" class="muted small ellipsis"></div>
+        <label class="check"><input type="radio" name="excludeKind" value="page" checked> このページ（この URL と、その下のページ）</label>
+        <label class="check"><input type="radio" name="excludeKind" value="site"> このサイト全体（サブドメインも含む）</label>
+        <label class="field">
+          <span>除外パターン（書き換えられます）</span>
+          <input id="excludeValue" type="text" autocomplete="off">
+        </label>
+        <div class="muted small">登録した URL のタブは、期間が過ぎても自動クローズで閉じません。<code>github.com</code>（サイト全体）、<code>mail.google.com/mail</code>（ホスト + パスの先頭）、<code>https://example.com/docs</code>（URL の先頭）のように書けます。<code>*</code> は任意の文字列。一覧の編集・削除は設定画面の「タブの自動クローズ」で。</div>
+      </div>
+      <div class="dlg-foot">
+        <button type="button" id="excludeCancel">キャンセル</button>
+        <button type="submit" class="primary">除外リストに追加</button>
+      </div>
+    </form>
+  </dialog>
+
   <script type="module" src="sidepanel.js"></script>
 </body>
 </html>

@@ -16,6 +16,13 @@
     .desc { margin: 2px 0 0 24px; color: var(--fg-sub); font-size: 12px; }
     input[type=number] { width: 80px; }
     code { background: var(--bg-sub); padding: 1px 4px; border-radius: 4px; }
+    .exclude-title { font-weight: 600; }
+    .exclude-desc { margin-left: 0; }
+    .exclude-list { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 6px; }
+    .exclude-row { display: flex; align-items: center; gap: 6px; }
+    .exclude-row input { flex: 1; min-width: 0; }
+    .exclude-empty { color: var(--fg-sub); font-size: 12px; padding: 2px 0; }
+    #excludeAdd input { min-width: 0; }
   </style>
 </head>
 <body>
@@ -62,6 +69,19 @@
       固定タブ・音声再生中のタブ・各ウィンドウのアクティブなタブ・seiton 自身のページは対象外で、ウィンドウの最後の 1 枚は閉じません。
       閉じたタブはワークスペースの保存内容からも外れます。ワークスペースごとに、管理パネルの ✎ で上書きできます。
     </div>
+  </div>
+  <div class="field">
+    <div class="exclude-title">除外する URL</div>
+    <div class="desc exclude-desc">
+      ここに登録した URL のタブは、期間が過ぎても閉じません。1 行に 1 件。管理パネルの「開いているタブ」の 🛡 からも追加できます。書き方:
+      <code>github.com</code>（サイト全体。サブドメインも含む）、<code>mail.google.com/mail</code>（ホスト + パスの先頭）、
+      <code>https://example.com/docs</code>（URL の先頭）。<code>*</code> は任意の文字列（例: <code>*.example.com</code>、<code>example.com/*/edit</code>）。
+    </div>
+    <div id="excludeList" class="exclude-list"></div>
+    <form id="excludeAdd" class="row">
+      <input id="excludePattern" type="text" class="grow" placeholder="例: github.com / mail.google.com/mail / https://example.com/docs" autocomplete="off">
+      <button type="submit">追加</button>
+    </form>
   </div>
 
   <h2>ブックマーク</h2>

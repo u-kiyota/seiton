@@ -13,6 +13,8 @@ export const DEFAULT_SETTINGS = {
   bookmarkRootName: 'Workspaces',
   // 最後に使ってから days 日以上経ったタブを自動で閉じる（既定 OFF。ワークスペースごとに ws.autoClose で上書き可。凍結: 必ず新しいオブジェクトで置き換える）
   autoClose: Object.freeze({ enabled: false, days: 7 }),
+  // 自動クローズの対象外にする URL のパターン（issue #20。書き方は autoCloseExcludeMatch 付近を参照）。凍結: 必ず新しい配列で置き換える
+  autoCloseExclude: Object.freeze([]),
   // ウィンドウの左端に、今のワークスペースを示す専用タブ（色付きのタブグループ）を置く
   workspaceTab: true,
 };
@@ -86,6 +88,7 @@ export function normalizeState(raw) {
     workspaces: raw.workspaces && typeof raw.workspaces === 'object' ? raw.workspaces : {},
   };
   state.settings.autoClose = normalizeAutoClose(state.settings.autoClose);
+  state.settings.autoCloseExclude = normalizeExcludePatterns(state.settings.autoCloseExclude);
   state.sessionOrder = (Array.isArray(raw.sessionOrder) ? raw.sessionOrder : []).filter((id) => sessions[id]);
   for (const id of Object.keys(sessions)) {
     if (!state.sessionOrder.includes(id)) state.sessionOrder.push(id);
@@ -594,16 +597,18 @@ export function effectiveLastAccessed(tab, inherited) {
  * 1 ウィンドウ分のタブ（tabs.query の結果）から、自動で閉じるタブを返す。
  * 最後にアクティブだった時刻（effectiveLastAccessed）から days 日以上経ったものが対象。
  * inherited: { [tabId]: { saved, restoredAt } }（復元したタブが引き継ぐ最終アクセス時刻）
+ * exclude: 除外 URL のパターンの配列（autoCloseExcludeMatch）。当てはまるタブは閉じない
  * アクティブ・固定・音声再生中・拡張自身のページ・最終アクセス時刻が無いタブは除外。
  * ウィンドウが消えないよう、全タブ（ワークスペースタブを除く）が対象になる場合は最後に使ったタブを 1 つ残す
  */
-export function tabsToAutoClose(tabs, { now, days, inherited = {} }) {
+export function tabsToAutoClose(tabs, { now, days, inherited = {}, exclude = [] }) {
   const d = parseAutoCloseDays(days);
   if (d === null || !Number.isFinite(now) || !Array.isArray(tabs)) return [];
   const threshold = now - d * DAY_MS;
   const accessed = new Map();
   const out = tabs.filter((t) => {
     if (!t || t.active || t.pinned || t.audible || tabUrl(t).startsWith('chrome-extension://')) return false;
+    if (autoCloseExcludeMatch(tabUrl(t), exclude)) return false;
     const at = effectiveLastAccessed(t, inherited?.[t.id]);
     accessed.set(t, at);
     return at !== null && at <= threshold;
@@ -615,6 +620,97 @@ export function tabsToAutoClose(tabs, { now, days, inherited = {} }) {
     return out.filter((t) => t !== keep);
   }
   return out;
+}
+
+// ---- 自動クローズの除外 URL（issue #20） ----
+// settings.autoCloseExclude に文字列の配列で持つ。1 件の書き方:
+//   github.com                 ホスト（サブドメインも含む）。example.com は www.example.com にも当てはまる
+//   mail.google.com/mail       ホスト + パスの先頭（/mail と /mail/... に当てはまり、/mailbox には当てはまらない）
+//   https://example.com/a/b    URL の先頭（スキームを書くと URL 全体の前方一致。同じく /a/b と /a/b/... と /a/b?x）
+//   *.example.com, example.com/*/edit, https://*.example.com/   * は任意の文字列
+
+/** 除外パターン 1 件を整える（前後の空白を除去）。文字列でなければ '' */
+export function normalizeExcludePattern(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+/** 除外パターンの配列を整える（空を捨て、重複を除き、順序は保つ）。配列でなければ空 */
+export function normalizeExcludePatterns(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const v of list) {
+    const p = normalizeExcludePattern(v);
+    if (p && !out.includes(p)) out.push(p);
+  }
+  return out;
+}
+
+/** glob（* だけ）→ 正規表現の本体 */
+function globToRegExpSource(s) {
+  return s.split('*').map((part) => part.replace(/[.*+?^${}()|[\]\/]/g, '\$&')).join('.*');
+}
+
+/**
+ * 前方一致（境界付き）: text が prefix そのものか、prefix に続く文字が区切り（/ ? # & =）か、prefix が区切りで終わる。
+ * example.com/a が example.com/ab に当たらないようにする。* を含む prefix は glob として扱う
+ */
+function prefixMatch(text, prefix, { ignoreCase = false } = {}) {
+  if (!prefix) return true;
+  if (prefix.includes('*')) return new RegExp(`^${globToRegExpSource(prefix)}`, ignoreCase ? 'i' : '').test(text);
+  const a = ignoreCase ? text.toLowerCase() : text;
+  const b = ignoreCase ? prefix.toLowerCase() : prefix;
+  if (!a.startsWith(b)) return false;
+  if (a.length === b.length) return true;
+  return /[/?#&=]$/.test(b) || /[/?#&=]/.test(a[b.length]);
+}
+
+/** ホストの一致: 同じか、そのサブドメイン（* を含むパターンは glob で全体一致） */
+function hostMatch(host, pattern) {
+  const h = (host || '').toLowerCase();
+  const p = pattern.toLowerCase();
+  if (!h || !p) return false;
+  if (p.includes('*')) return new RegExp(`^${globToRegExpSource(p)}$`).test(h);
+  return h === p || h.endsWith(`.${p}`);
+}
+
+/** 除外パターン 1 件が URL に当てはまるか */
+export function matchesExcludePattern(url, pattern) {
+  const p = normalizeExcludePattern(pattern);
+  if (!p || typeof url !== 'string' || !url) return false;
+  const target = url.split('#')[0];
+  // スキーム付き: URL 全体の前方一致（末尾のスラッシュは無視。大小は区別しない）
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(p)) {
+    const strip = (s) => (s.endsWith('/') ? s.slice(0, -1) : s);
+    return prefixMatch(strip(target), strip(p), { ignoreCase: true });
+  }
+  let u;
+  try { u = new URL(target); } catch { return false; }
+  // スキーム無し: ホスト（サブドメインも）と、あればパスの先頭
+  const slash = p.indexOf('/');
+  const hostPat = slash === -1 ? p : p.slice(0, slash);
+  const pathPat = slash === -1 ? '' : p.slice(slash);
+  if (!hostMatch(u.host, hostPat) && !hostMatch(u.hostname, hostPat)) return false;
+  if (!pathPat || pathPat === '/') return true;
+  return prefixMatch(u.pathname + u.search, pathPat);
+}
+
+/** URL に当てはまる最初の除外パターン（無ければ null） */
+export function autoCloseExcludeMatch(url, patterns) {
+  if (!Array.isArray(patterns) || !url) return null;
+  for (const p of patterns) if (matchesExcludePattern(url, p)) return p;
+  return null;
+}
+
+/**
+ * タブの URL から除外パターンの候補を作る（管理パネルの「自動クローズから除外」用）。
+ * page: この URL（フラグメントと末尾スラッシュを除いた前方一致）、site: ホスト全体（ホストが無い URL では null）
+ */
+export function excludePatternsForUrl(url) {
+  const page = normalizeUrlForMatch(url);
+  if (!page) return { page: '', site: null };
+  let site = null;
+  try { site = new URL(url).host || null; } catch { /* about:blank など */ }
+  return { page, site };
 }
 
 // ---- 自動クローズで閉じたタブの履歴（issue #18） ----

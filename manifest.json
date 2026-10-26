@@ -24,6 +24,8 @@
     "favicon",
     "history"
   ],
+  "optional_permissions": ["cookies"],
+  "optional_host_permissions": ["<all_urls>"],
   "action": {
     "default_title": "seiton (クイックパレット)",
     "default_popup": "src/ui/popup.html",

@@ -16,6 +16,7 @@ async function load() {
   $('autoCloseValue').value = dur.value;
   $('autoCloseUnit').value = dur.unit;
   setExclude(s.autoCloseExclude);
+  await renderCookie(state);
 
   const commands = await chrome.commands.getAll();
   $('commands').replaceChildren(...commands.map((c) => h('li', {},
@@ -153,6 +154,105 @@ function showClosedCount(list) {
 }
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.closedTabs) showClosedCount(changes.closedTabs.newValue);
+});
+
+// ---- セッションごとの Cookie の分離（issue #12） ----
+
+// manifest の optional_permissions / optional_host_permissions と一致させる（lib/cookies.js の COOKIE_PERMISSION と同じ）
+const COOKIE_PERMISSION = { permissions: ['cookies'], origins: ['<all_urls>'] };
+let cookieBusy = false;
+
+const clearCookieBtn = confirmButton('退避した Cookie を削除', '本当に削除？', () => attempt(async () => {
+  await call('clearCookieJars');
+  toast('退避した Cookie を削除しました');
+  await renderCookie();
+}), { title: '各セッション用に退避した Cookie をすべて削除（今 Chrome に入っている Cookie は消しません）' });
+$('clearCookieSlot').append(clearCookieBtn);
+
+function hostsText(info) {
+  if (!info || !info.count) return '';
+  const names = info.hosts.map((x) => x.host).join(', ');
+  return info.hosts.length < info.count ? `${names}, …` : names;
+}
+
+/** 設定・権限・退避 Cookie の状態を描く。state を省略すると取り直す */
+async function renderCookie(state) {
+  if (!state) ({ state } = await call('getState'));
+  const st = await call('getCookieStatus');
+  const active = st.enabled && st.permitted;
+  $('cookieIsolation').checked = active;
+  // ON にするときに「今の Cookie はどのセッションのものか」を選ぶ（既定: 最後に使ったワークスペースのセッション）
+  const last = state.workspaces[state.lastFocusedWorkspaceId]?.sessionId;
+  const preset = st.cookieSessionId && state.sessions[st.cookieSessionId] ? st.cookieSessionId : (state.sessions[last] ? last : state.sessionOrder[0]);
+  $('cookieSession').replaceChildren(...state.sessionOrder.map((id) =>
+    h('option', { value: id, selected: id === preset }, state.sessions[id].name)));
+  $('cookieEnableField').hidden = active;
+
+  const rows = state.sessionOrder.map((id) => {
+    const now = active && id === st.cookieSessionId;
+    const jar = st.jars[id];
+    const info = now ? st.live : jar;
+    let where;
+    if (now) where = '今 Chrome に入っている';
+    else if (jar) where = `退避済み（${new Date(jar.savedAt).toLocaleString()}）`;
+    else where = '退避した Cookie なし';
+    return h('tr', { class: now ? 'now' : '' },
+      h('td', {}, state.sessions[id].name),
+      h('td', {}, where),
+      h('td', {}, info ? `${info.count} 件` : '—', info?.count ? h('div', { class: 'hosts' }, hostsText(info)) : null));
+  });
+  const jarCount = Object.keys(st.jars).length;
+  const head = active
+    ? `ON: 今 Chrome に入っている Cookie はセッション「${state.sessions[st.cookieSessionId]?.name || '不明'}」のものとして扱っています。`
+    : (st.enabled && !st.permitted
+      ? 'OFF: 権限が許可されていないため働いていません。チェックを入れ直して権限を許可してください。'
+      : (jarCount ? 'OFF（退避した Cookie が残っています。ON にすると続きから使えます）' : 'OFF'));
+  $('cookieStatus').replaceChildren(
+    h('div', {}, head),
+    h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'セッション'), h('th', {}, 'Cookie の場所'), h('th', {}, '件数・主なサイト'))),
+      h('tbody', {}, rows)),
+  );
+  clearCookieBtn.disabled = !jarCount;
+}
+
+$('cookieIsolation').addEventListener('change', async (e) => {
+  if (cookieBusy) return;
+  cookieBusy = true;
+  const on = e.target.checked;
+  try {
+    if (on) {
+      // 権限の要求はユーザー操作の直後に（await を挟むと操作扱いにならないことがある）
+      let granted = false;
+      try {
+        granted = await chrome.permissions.request(COOKIE_PERMISSION);
+      } catch (err) {
+        toast(err?.message || String(err), true);
+      }
+      if (!granted) {
+        e.target.checked = false;
+        toast('権限が許可されなかったため ON にできません', true);
+        return;
+      }
+      const res = await attempt(() => call('setCookieIsolation', { enabled: true, sessionId: $('cookieSession').value }));
+      if (res) {
+        const { state } = await call('getState');
+        toast(`ON にしました。今の Cookie はセッション「${state.sessions[res.cookieSessionId]?.name || ''}」のものです`);
+      }
+    } else {
+      const res = await attempt(() => call('setCookieIsolation', { enabled: false }));
+      if (res) toast('OFF にしました（退避した Cookie は残しています）');
+    }
+  } finally {
+    cookieBusy = false;
+    await attempt(() => renderCookie());
+  }
+});
+
+// ワークスペースの切替で「今の Cookie のセッション」が変わったら表示を更新する
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || cookieBusy) return;
+  if (changes.cookieSessionId || changes.cookieJars) attempt(() => renderCookie());
 });
 
 attempt(load);

@@ -17,6 +17,9 @@ export const DEFAULT_SETTINGS = {
   autoCloseExclude: Object.freeze([]),
   // ウィンドウの左端に、今のワークスペースを示す専用タブ（色付きのタブグループ）を置く
   workspaceTab: true,
+  // セッションごとに Cookie（ログイン状態）を分ける（issue #12）。切替時に Cookie を退避 / 復元する。
+  // 任意権限（cookies + <all_urls>）が必要なので、設定画面の setCookieIsolation 経由でだけ ON にする（updateSettings では変えない）
+  cookieIsolation: false,
 };
 
 export const COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
@@ -89,6 +92,7 @@ export function normalizeState(raw) {
   };
   state.settings.autoClose = normalizeAutoClose(state.settings.autoClose);
   state.settings.autoCloseExclude = normalizeExcludePatterns(state.settings.autoCloseExclude);
+  state.settings.cookieIsolation = state.settings.cookieIsolation === true;
   state.sessionOrder = (Array.isArray(raw.sessionOrder) ? raw.sessionOrder : []).filter((id) => sessions[id]);
   for (const id of Object.keys(sessions)) {
     if (!state.sessionOrder.includes(id)) state.sessionOrder.push(id);
@@ -758,4 +762,81 @@ export function closedDayLabel(ts, now = Date.now()) {
 export function formatClockTime(ts) {
   const d = new Date(ts);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+// ---- セッションごとの Cookie 分離（issue #12）。chrome.cookies の Cookie ⇔ set / remove の引数の変換 ----
+
+/** Cookie を set / remove するときに渡す URL（スキーム + ドメイン + パス）。ドメイン Cookie の先頭の . は外す */
+export function cookieUrl(cookie) {
+  const host = String(cookie?.domain || '').replace(/^\./, '');
+  const path = typeof cookie?.path === 'string' && cookie.path.startsWith('/') ? cookie.path : '/';
+  return `${cookie?.secure ? 'https' : 'http'}://${host}${path}`;
+}
+
+/** Cookie を同じ属性で作り直すための chrome.cookies.set の引数 */
+export function cookieSetDetails(cookie) {
+  const d = {
+    url: cookieUrl(cookie),
+    name: cookie.name,
+    value: cookie.value ?? '',
+    path: typeof cookie.path === 'string' && cookie.path.startsWith('/') ? cookie.path : '/',
+    secure: !!cookie.secure,
+    httpOnly: !!cookie.httpOnly,
+  };
+  // hostOnly の Cookie は domain を渡さない（渡すとドメイン Cookie になってしまう）
+  if (!cookie.hostOnly && cookie.domain) d.domain = cookie.domain;
+  // セッション Cookie（ブラウザ終了まで）は expirationDate を付けない
+  if (!cookie.session && Number.isFinite(cookie.expirationDate)) d.expirationDate = cookie.expirationDate;
+  if (cookie.sameSite) d.sameSite = cookie.sameSite;
+  if (cookie.storeId) d.storeId = cookie.storeId;
+  if (cookie.partitionKey) d.partitionKey = cookie.partitionKey;
+  return d;
+}
+
+/** Cookie を削除するための chrome.cookies.remove の引数 */
+export function cookieRemoveDetails(cookie) {
+  const d = { url: cookieUrl(cookie), name: cookie.name };
+  if (cookie.storeId) d.storeId = cookie.storeId;
+  if (cookie.partitionKey) d.partitionKey = cookie.partitionKey;
+  return d;
+}
+
+/** 同じ Cookie を識別するキー（getAll を 2 通りの条件で呼んだ結果を重複なく合わせるため） */
+export function cookieKey(cookie) {
+  const pk = cookie.partitionKey ? JSON.stringify(cookie.partitionKey) : '';
+  return [cookie.storeId || '', cookie.domain || '', cookie.path || '/', cookie.name || '', pk].join('|');
+}
+
+/** 期限切れの Cookie か（退避中に期限が過ぎたものは復元しない） */
+export function isExpiredCookie(cookie, now = Date.now()) {
+  return !cookie.session && Number.isFinite(cookie.expirationDate) && cookie.expirationDate * 1000 <= now;
+}
+
+/** 保存した Cookie の一覧から、同じ Cookie を 1 つにまとめて期限切れを除く */
+export function dedupeCookies(cookies, now = Date.now()) {
+  const seen = new Map();
+  for (const c of Array.isArray(cookies) ? cookies : []) {
+    if (!c || typeof c !== 'object' || typeof c.name !== 'string' || !c.domain) continue;
+    if (isExpiredCookie(c, now)) continue;
+    seen.set(cookieKey(c), c);
+  }
+  return [...seen.values()];
+}
+
+/** 退避した Cookie の入れ物（storage.local の cookieJars[sessionId]）の形を整える */
+export function normalizeCookieJar(jar) {
+  if (!jar || typeof jar !== 'object') return null;
+  const cookies = dedupeCookies(jar.cookies);
+  return { savedAt: Number.isFinite(jar.savedAt) ? jar.savedAt : 0, cookies };
+}
+
+/** Cookie のドメイン（先頭の . なし）ごとの件数。設定画面で「どのサイトのログイン状態を持っているか」を見せる */
+export function cookieHosts(cookies) {
+  const counts = new Map();
+  for (const c of Array.isArray(cookies) ? cookies : []) {
+    const host = String(c.domain || '').replace(/^\./, '');
+    if (!host) continue;
+    counts.set(host, (counts.get(host) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([host, count]) => ({ host, count }));
 }

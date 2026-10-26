@@ -22,6 +22,9 @@ import {
 import { AUTO_CLOSE_ALARM, configureAutoClose, runAutoClose } from './lib/autoclose.js';
 import { forgetInheritedAccess } from './lib/access.js';
 import { listClosedTabs, removeClosedTab, clearClosedTabs } from './lib/history.js';
+import {
+  cookieStatus, reconcileCookieIsolation, setCookieSessionId, clearCookieJars, hasCookiePermission, releaseCookiePermission,
+} from './lib/cookies.js';
 import { isBookmarkableUrl, findBookmarkByUrl, changedBindingWindows, indicatorSignature } from './lib/core.js';
 import {
   refreshWindowIndicator, refreshAllIndicators, refreshTabIndicator, scheduleTabIndicator,
@@ -157,6 +160,7 @@ const GUIDE_PAGE = 'src/ui/guide.html';
 chrome.runtime.onStartup.addListener(() => {
   serialize(async () => {
     const state = await loadState();
+    if (await reconcileCookieIsolation(state)) await saveState(state);
     await configureAutoDiscard(state.settings);
     await configureAutoClose(state);
     await flushDiscardQueue();
@@ -177,6 +181,7 @@ chrome.runtime.onInstalled.addListener((details) => {
   serialize(async () => {
     const { state: raw } = await chrome.storage.local.get('state');
     const state = normalizeState(raw);
+    await reconcileCookieIsolation(state);
     await saveState(state);
     await configureAutoDiscard(state.settings);
     await configureAutoClose(state);
@@ -187,6 +192,13 @@ chrome.runtime.onInstalled.addListener((details) => {
     refreshAllIndicators();
     scheduleAllWorkspaceTabs({ prune: true });
   });
+});
+
+// ---- Cookie の分離（issue #12）: 権限が取り消されたら設定も OFF にする ----
+
+chrome.permissions.onRemoved.addListener((removed) => {
+  if (!removed.permissions?.includes('cookies') && !removed.origins?.includes('<all_urls>')) return;
+  serialize(() => mutate((state) => { state.settings.cookieIsolation = false; })).catch((e) => console.warn(e));
 });
 
 // ---- ブックマーク ----
@@ -344,6 +356,8 @@ const readOnly = {
   },
   // 自動クローズで閉じたタブの履歴（新しい順）
   listClosedTabs: () => listClosedTabs(),
+  // Cookie の分離の状態（権限・今の Cookie のセッション・各セッションの退避 Cookie の件数）
+  getCookieStatus: async () => cookieStatus(await loadState()),
 };
 
 const mutating = {
@@ -355,8 +369,9 @@ const mutating = {
     return res;
   },
   updateWorkspace: async ({ id, patch }) => {
-    await updateWorkspace(id, patch);
+    const res = await updateWorkspace(id, patch);
     if (patch && 'autoClose' in patch) await configureAutoClose(await loadState());
+    return res;
   },
   reorderWorkspace: ({ id, toIndex }) => reorderWorkspace(id, toIndex),
   deleteWorkspace: ({ id }) => deleteWorkspace(id),
@@ -397,7 +412,9 @@ const mutating = {
   updateSettings: async ({ patch }) => {
     const state = await mutate((state) => {
       const prevAutoClose = state.settings.autoClose;
-      Object.assign(state.settings, patch);
+      // Cookie の分離は権限の要求を伴うので setCookieIsolation でだけ変える
+      const { cookieIsolation: _ignored, ...rest } = patch || {};
+      Object.assign(state.settings, rest);
       state.settings.autoDiscardMinutes = Math.max(0, Number(state.settings.autoDiscardMinutes) || 0);
       state.settings.workspaceTab = state.settings.workspaceTab !== false;
       // 一部の項目だけの patch も受け付け、不正な日数（NaN・負など）は今の値を保つ
@@ -428,8 +445,33 @@ const mutating = {
     state.settings.autoCloseExclude = list.filter((x) => x !== p);
     return { removed: list.length !== state.settings.autoCloseExclude.length, patterns: state.settings.autoCloseExclude };
   }),
+  /**
+   * Cookie の分離の ON / OFF（issue #12）。ON にするときは設定画面側で権限を要求してから呼ぶ。
+   * sessionId: 今 Chrome に入っている Cookie がどのセッションのものか（ON にした時点の割り当て。省略時は最後に使ったワークスペースのセッション）
+   */
+  setCookieIsolation: async ({ enabled, sessionId }) => {
+    if (enabled) {
+      if (!(await hasCookiePermission())) throw new Error('Cookie を読み書きする権限が許可されていません');
+      const state = await mutate((state) => {
+        state.settings.cookieIsolation = true;
+        return state;
+      });
+      const last = state.workspaces[state.lastFocusedWorkspaceId]?.sessionId;
+      const sid = state.sessions[sessionId] ? sessionId : (state.sessions[last] ? last : state.sessionOrder[0]);
+      await setCookieSessionId(sid);
+      return { enabled: true, cookieSessionId: sid };
+    }
+    await mutate((state) => { state.settings.cookieIsolation = false; });
+    // 権限は返上する（退避した Cookie は残すので、再度 ON にすれば続きから使える）
+    await releaseCookiePermission();
+    return { enabled: false };
+  },
+  // 退避した Cookie をすべて削除（今 Chrome に入っている Cookie は消さない）
+  clearCookieJars: () => clearCookieJars(),
   importData: async ({ data }) => {
     const state = normalizeState(data);
+    // Cookie の分離は、この Chrome での権限と退避した Cookie に結び付くので、インポートでは今の設定を保つ
+    state.settings.cookieIsolation = (await loadState()).settings.cookieIsolation;
     await saveState(state);
     await configureAutoDiscard(state.settings);
     await configureAutoClose(state);

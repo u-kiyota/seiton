@@ -458,7 +458,7 @@ export async function deleteSession(id, moveToId) {
   const dest = before.sessions[moveToId] && moveToId !== id ? moveToId : before.sessionOrder.find((s) => s !== id);
   // 今の Cookie が消すセッションのものなら、移動先セッションの Cookie に入れ替えてから消す（消したセッションの Cookie は捨てる）
   let cookieSession = null;
-  if (await isolationActive(before) && await getCookieSessionId() === id) {
+  if (await isolationActive() && await getCookieSessionId() === id) {
     const res = await swapCookies(id, dest);
     cookieSession = { ...res, fromName: before.sessions[id].name, toName: before.sessions[dest].name };
   }

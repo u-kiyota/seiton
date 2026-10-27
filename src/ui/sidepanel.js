@@ -34,6 +34,8 @@ let moving = 0; // 実行中の「移動」操作の数。完了を待ってか�
 let closeWhenIdle = false;
 // パネルの外にフォーカスが移っても閉じない区間の数（Chrome の権限ダイアログなど）。0 に戻ったらパネルにフォーカスを戻す
 let holdOpen = 0;
+// 保持を解除した直後は、ダイアログが閉じたときのフォーカス移動で blur が遅れて届くので、この時刻までは閉じない
+let holdUntil = 0;
 
 /** fn の間はフォーカスを失ってもパネルを閉じない（権限ダイアログがパネルの前に出るため）。終わったらパネルを前面に戻す */
 async function holdPanel(fn) {
@@ -41,8 +43,9 @@ async function holdPanel(fn) {
   try {
     return await fn();
   } finally {
+    if (selfWindowId != null) await chrome.windows.update(selfWindowId, { focused: true }).catch(() => {});
+    holdUntil = Date.now() + 1000;
     holdOpen--;
-    if (!holdOpen && selfWindowId != null) chrome.windows.update(selfWindowId, { focused: true }).catch(() => {});
   }
 }
 
@@ -330,8 +333,8 @@ function renderEditor(ws) {
     h('label', {}, h('span', {}, '色'), colors),
     h('div', { class: 'row' }, h('span', { class: 'edit-label' }, 'アイコン'), icon),
     h('label', {}, h('span', {}, '使うセッション'), session),
-    cookieInfo && !(cookieInfo.enabled && cookieInfo.permitted)
-      ? h('div', { class: 'muted small', style: { margin: '-4px 0 4px' } }, 'Cookie の分離は OFF（セッションはラベルだけ）。ヘッダーの「セッション」から ON にできます')
+    cookieInfo && !cookieInfo.permitted && state.sessionOrder.length > 1
+      ? h('div', { class: 'muted small', style: { margin: '-4px 0 4px' } }, 'Cookie を分けるための権限が未許可です。ヘッダーの「セッション」から許可できます')
       : null,
     h('label', {}, h('span', {}, 'ブックマーク'), folderSel),
     h('label', { title: '長期間使っていないタブを自動で閉じるか（設定画面の値をこのワークスペースだけ上書き）' }, h('span', {}, '自動クローズ'), acMode),
@@ -741,13 +744,14 @@ async function renderSessionDialog() {
   try {
     cookie = await call('getCookieStatus');
   } catch { /* 表示だけなので無視 */ }
-  const isolating = !!(cookie?.enabled && cookie.permitted);
+  const isolating = !!cookie?.permitted;
+  const multi = state.sessionOrder.length > 1;
   $('sessionCookieNote').textContent = isolating
-    ? `Cookie の分離: ON。別のセッションのワークスペースに切り替えると、Cookie（ログイン状態）をそのセッションのものに入れ替えます（全ウィンドウに及びます）。今の Cookie: 「${state.sessions[cookie.cookieSessionId]?.name || '不明'}」`
-    : (cookie?.enabled && !cookie.permitted
-      ? 'Cookie の分離: 設定は ON ですが権限が無いため働いていません。「権限を許可して ON にする」で許可し直してください。'
-      : 'Cookie の分離: OFF（セッションはラベルだけです）。ON にすると、セッションごとに Cookie（ログイン状態）を分けて使えます。今 Chrome に入っている Cookie は、このウィンドウのワークスペースのセッションのものになります。');
-  $('sessionCookieToggleSlot').replaceChildren(cookie ? cookieToggleButton(cookie, isolating) : '');
+    ? `別のセッションのワークスペースに切り替えると、Cookie（ログイン状態）をそのセッションのものに入れ替えます（全ウィンドウに及びます）。今 Chrome に入っている Cookie: 「${state.sessions[cookie.cookieSessionId]?.name || '不明'}」`
+    : (multi
+      ? 'Cookie を読み書きする権限が許可されていないため、今はセッション間で Cookie が分かれていません。「権限を許可する」で許可してください。'
+      : 'セッションを追加すると、Cookie を読み書きする権限（すべてのサイト）の確認が出ます。許可すると、セッションごとにログイン状態が分かれます。');
+  $('sessionCookieGrantSlot').replaceChildren(cookie && !isolating && multi ? grantButton() : '');
   const cookieBadge = (id) => {
     if (!isolating) return null;
     if (id === cookie.cookieSessionId) return h('span', { class: 'badge here', title: '今 Chrome に入っている Cookie はこのセッションのものです' }, '🍪 今の Cookie');
@@ -779,32 +783,31 @@ async function renderSessionDialog() {
   }));
 }
 
-/** セッション管理の「Cookie の分離を ON / OFF にする」。ON は権限の要求を伴うので、クリックの直後に permissions.request を呼ぶ */
-function cookieToggleButton(cookie, isolating) {
-  if (isolating) {
-    return confirmButton('Cookie の分離を OFF にする', '本当に OFF？', () => attempt(async () => {
-      await call('setCookieIsolation', { enabled: false });
-      toast('Cookie の分離を OFF にしました（退避した Cookie は残しています）');
-      await renderSessionDialog();
-    }), { title: '権限を返上します。退避した Cookie は残るので、再度 ON にすれば続きから使えます' });
-  }
-  const label = cookie.enabled && !cookie.permitted ? '権限を許可して ON にする' : 'Cookie の分離を ON にする';
+/**
+ * Cookie を分けるための権限（cookies + <all_urls>）を求める。ユーザー操作の直後に呼ぶこと。
+ * 許可されたら「今 Chrome に入っている Cookie はこのウィンドウのワークスペースのセッションのもの」とサービスワーカーに伝える。
+ * 既に許可済みなら何もしない。拒否されたら false
+ */
+async function ensureCookiePermission() {
+  if (await chrome.permissions.contains(COOKIE_PERMISSION)) return true;
+  // 権限ダイアログでパネルがフォーカスを失っても閉じない（閉じるとリクエストごと消える）
+  const granted = await holdPanel(() => chrome.permissions.request(COOKIE_PERMISSION));
+  if (!granted) return false;
+  const sessionId = data.state.workspaces[data.bindings[windowId]]?.sessionId;
+  const res = await call('grantCookieIsolation', { sessionId });
+  if (res.adopted) toast(`今 Chrome に入っている Cookie はセッション「${data.state.sessions[res.cookieSessionId]?.name || ''}」のものとして扱います`);
+  return true;
+}
+
+/** 権限が無いのにセッションが 2 つ以上あるときの「権限を許可する」 */
+function grantButton() {
   return h('button', {
     type: 'button', class: 'primary', title: 'Cookie を読み書きする権限（すべてのサイト）の確認が出ます',
     onclick: () => attempt(async () => {
-      // 権限ダイアログでパネルがフォーカスを失っても閉じない（閉じるとリクエストごと消える）
-      const granted = await holdPanel(() => chrome.permissions.request(COOKIE_PERMISSION));
-      if (!granted) {
-        toast('権限が許可されなかったため ON にできません', true);
-        return;
-      }
-      // 今 Chrome に入っている Cookie は、このウィンドウのワークスペースのセッション（無ければ最後に使ったワークスペースのセッション）のものとして扱う
-      const sessionId = data.state.workspaces[data.bindings[windowId]]?.sessionId;
-      const res = await call('setCookieIsolation', { enabled: true, sessionId });
-      toast(`Cookie の分離を ON にしました。今の Cookie はセッション「${data.state.sessions[res.cookieSessionId]?.name || ''}」のものです`);
+      if (!(await ensureCookiePermission())) { toast('権限が許可されなかったため、Cookie は分かれません', true); return; }
       await renderSessionDialog();
     }),
-  }, label);
+  }, '権限を許可する');
 }
 
 $('sessions').addEventListener('click', () => {
@@ -817,8 +820,13 @@ $('sessionAdd').addEventListener('submit', (e) => {
   e.preventDefault();
   const name = $('sessionName').value.trim();
   if (!name) return;
-  $('sessionName').value = '';
   attempt(async () => {
+    // セッションを分ける＝Cookie を分けるので、2 つ目以降のセッションを作る前に権限を求める（拒否されたら作らない）
+    if (!(await ensureCookiePermission())) {
+      toast('Cookie を読み書きする権限が許可されなかったため、セッションを追加しませんでした', true);
+      return;
+    }
+    $('sessionName').value = '';
     await call('createSession', { name });
     // 入力欄にフォーカスが残っていると render() が後回しになるので、一覧だけ即時に描き直す
     data = await call('getState');
@@ -1578,7 +1586,7 @@ document.addEventListener('keydown', (e) => {
 // フォーカスを失ったら閉じる（モーダル的な挙動）。一瞬だけ外れることがあるので少し待ってから確かめる
 window.addEventListener('blur', (e) => {
   if (e.target !== window) return;
-  setTimeout(() => { if (!document.hasFocus() && !holdOpen) closePanel(); }, 150);
+  setTimeout(() => { if (!document.hasFocus() && !holdOpen && Date.now() > holdUntil) closePanel(); }, 150);
 });
 // 対象ウィンドウが閉じられたらパネルも閉じる
 chrome.windows.onRemoved.addListener((id) => { if (id === windowId) closePanel(); });

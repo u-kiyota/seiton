@@ -93,23 +93,19 @@
 
   <h2>セッション（Cookie / ログイン状態の分離）</h2>
   <div class="field">
-    <label><input id="cookieIsolation" type="checkbox"> セッションごとに Cookie（ログイン状態）を分ける</label>
-    <div class="desc">
-      ON にすると、別のセッションを使うワークスペースに切り替えるとき、今の Cookie をそのセッション用に退避してすべて消し、切替先のセッションの Cookie を復元します
+    <div class="desc exclude-desc">
+      セッションごとに Cookie（ログイン状態）が分かれます。別のセッションを使うワークスペースに切り替えるとき、今の Cookie をそのセッション用に退避してすべて消し、切替先のセッションの Cookie を復元します
       （Chrome のプロファイルを切り替えるのに近い動き）。同じサイトに別のアカウントでログインしたままセッションごとに使い分けられます。
       Chrome 全体で同時に使えるセッションは 1 つで、切替は他のウィンドウにも及びます（別のセッションのワークスペースを開いているウィンドウは、次の読み込みから切替先のログイン状態になります）。
-      Cookie を読み書きする権限（すべてのサイト）が必要で、ON にするときに Chrome が確認を出します。localStorage などサイト側の他の保存領域は分けません。
+      Cookie を読み書きする権限（すべてのサイト）が必要で、管理パネルでセッションを追加するときに Chrome が確認を出します。localStorage などサイト側の他の保存領域は分けません。
       退避した Cookie はこの拡張の保存領域（<code>chrome.storage.local</code>）に平文で保存され、エクスポートには含まれません。
     </div>
   </div>
-  <div class="field" id="cookieEnableField">
-    <label>今 Chrome にあるログイン状態はどのセッションのもの？ <select id="cookieSession"></select></label>
-    <div class="desc">ON にした時点の Cookie をこのセッションのものとして扱います。他のセッションは空（未ログイン）の状態から始まり、そのセッションのワークスペースでログインすると、以後そのセッション用に保たれます。</div>
-  </div>
   <div id="cookieStatus" class="cookie-status"></div>
   <div class="row">
+    <span id="cookieGrantSlot"></span>
     <span id="clearCookieSlot"></span>
-    <span class="muted small">退避した Cookie だけを消します（今 Chrome に入っている Cookie は消しません）。OFF にしても退避した Cookie は残り、再度 ON にすれば続きから使えます。</span>
+    <span class="muted small">「退避した Cookie を削除」は退避した分だけを消します（今 Chrome に入っている Cookie は消しません）。</span>
   </div>
 
   <h2>ブックマーク</h2>

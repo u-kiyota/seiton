@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "seiton",
   "description": "ワークスペース単位でタブ・ブックマークを管理する Workona 風の拡張機能",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "minimum_chrome_version": "121",
   "icons": {
     "16": "icons/icon16.png",

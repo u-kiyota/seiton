@@ -8,7 +8,7 @@ import { openManager, toggleManager } from './lib/manager.js';
 import { serialize, loadState, saveState, mutate, getBindings } from './lib/store.js';
 import {
   snapshotWindow, switchWorkspace, openInNewWindow, createWorkspace, updateWorkspace, reorderWorkspace,
-  deleteWorkspace, detachWindow, createSession, renameSession, deleteSession,
+  deleteWorkspace, updateWorkspaces, deleteWorkspaces, detachWindow, createSession, renameSession, deleteSession,
   openSessionWindows, reconcileWindows, onWindowFocused, onWindowRemoved, isSwitching, isNormalWindow,
 } from './lib/workspace.js';
 import {
@@ -375,6 +375,13 @@ const mutating = {
   },
   reorderWorkspace: ({ id, toIndex }) => reorderWorkspace(id, toIndex),
   deleteWorkspace: ({ id }) => deleteWorkspace(id),
+  // 管理ダイアログの一括変更 / 一括削除（issue #25）
+  updateWorkspaces: async ({ ids, patch }) => {
+    const res = await updateWorkspaces(ids, patch);
+    if (patch && 'autoClose' in patch) await configureAutoClose(await loadState());
+    return res;
+  },
+  deleteWorkspaces: ({ ids }) => deleteWorkspaces(ids),
   detachWindow: ({ windowId }) => detachWindow(windowId),
   createSession: ({ name }) => createSession(name),
   renameSession: ({ id, name }) => renameSession(id, name),

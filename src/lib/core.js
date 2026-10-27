@@ -314,6 +314,58 @@ export function matchesQuery(text, query) {
   return q.split(/\s+/).every((w) => t.includes(w));
 }
 
+// ---- ワークスペースの並び替え（管理パネルのドラッグ＆ドロップ / ↑↓）（issue #25） ----
+
+/** 管理パネル内でワークスペースの行をドラッグする時の独自 MIME タイプ */
+export const WORKSPACE_DRAG_TYPE = 'application/x-seiton-workspace';
+
+/** ドラッグデータからワークスペース ID を取り出す（他のドラッグ（タブ・URL など）なら null） */
+export function parseWorkspaceDragData(getData) {
+  let raw = '';
+  try { raw = getData(WORKSPACE_DRAG_TYPE) || ''; } catch { /* 読めない形式 */ }
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v.id === 'string' && v.id ? v.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 並び順 order の中で id を toIndex（id を除いた並びでの位置）へ動かした新しい配列を返す。
+ * order に無い id はそのまま（コピーを返す）。toIndex は範囲内に丸める
+ */
+export function moveInOrder(order, id, toIndex) {
+  const list = (order || []).filter((w) => w !== id);
+  if (list.length === (order || []).length) return list;
+  const i = Number.isInteger(toIndex) ? Math.max(0, Math.min(toIndex, list.length)) : list.length;
+  list.splice(i, 0, id);
+  return list;
+}
+
+/**
+ * 行の上でのマウス位置から、ドロップ先を「その行の前（before）」か「後（after）」かに決める。
+ * offsetY: 行の上端からの距離、height: 行の高さ。行の上半分なら before
+ */
+export function dropPlacement(offsetY, height) {
+  if (!(height > 0) || !Number.isFinite(offsetY)) return 'after';
+  return offsetY < height / 2 ? 'before' : 'after';
+}
+
+/**
+ * draggedId を targetId の前 / 後へ落とした時の toIndex（moveInOrder / reorderWorkspace に渡す値）。
+ * 結果が今と同じ並びになる（自分の前後に落とす・自分自身に落とす）なら null
+ */
+export function reorderDropIndex(order, draggedId, targetId, placement) {
+  const list = order || [];
+  if (!list.includes(draggedId) || !list.includes(targetId) || draggedId === targetId) return null;
+  const rest = list.filter((w) => w !== draggedId);
+  const toIndex = rest.indexOf(targetId) + (placement === 'after' ? 1 : 0);
+  const next = moveInOrder(list, draggedId, toIndex);
+  return next.every((w, i) => w === list[i]) ? null : toIndex;
+}
+
 // ---- 管理パネル: タブのドラッグ＆ドロップでブックマーク登録 ----
 
 /** 管理パネル内でタブをドラッグする時の独自 MIME タイプ */

@@ -10,6 +10,7 @@ import {
   snapshotWindow, switchWorkspace, openInNewWindow, createWorkspace, updateWorkspace, reorderWorkspace,
   deleteWorkspace, updateWorkspaces, deleteWorkspaces, detachWindow, createSession, renameSession, deleteSession,
   openSessionWindows, reconcileWindows, onWindowFocused, onWindowRemoved, isSwitching, isNormalWindow, closeParked,
+  moveTabsToWorkspace, moveSavedTabs,
 } from './lib/workspace.js';
 import { forgetParkedGroup, parkedByWorkspace, refreshParkedGroups, replaceParkedTabId, noteReplacedTab } from './lib/parked.js';
 import {
@@ -394,6 +395,9 @@ const mutating = {
   },
   // 休止中のワークスペースのタブを閉じる（休止を終了）
   closeParked: ({ workspaceId }) => closeParked(workspaceId),
+  // 管理パネルで選んだタブを別のワークスペースへ移す（issue #33）。開いているタブは tabIds、開いていないワークスペースの保存タブは picks（[{ index, url }]）
+  moveTabs: ({ tabIds, workspaceId }) => moveTabsToWorkspace(tabIds, workspaceId),
+  moveSavedTabs: ({ fromWorkspaceId, picks, workspaceId }) => moveSavedTabs(fromWorkspaceId, picks, workspaceId),
   updateWorkspace: async ({ id, patch }) => {
     const res = await updateWorkspace(id, patch);
     if (patch && 'autoClose' in patch) await configureAutoClose(await loadState());

@@ -288,3 +288,34 @@ export async function recoverParkedGroups(windows, state, taken = new Set()) {
   await setParked(map);
   return { workspaceIds, tabIdsByWindow };
 }
+
+/**
+ * 開いているタブを休止グループに加える（issue #33 のタブ移動）。別ウィンドウのタブはそのウィンドウへ移してから入れる。
+ * 固定タブはグループに入れられないので固定を外し、再開時に戻すよう記録する。
+ * 前面のタブを含むグループは折りたためないので、前面のタブが含まれていれば別のタブ（無ければ空白タブ）を前面にする
+ */
+export async function addToParkedGroup(groupId, tabs) {
+  const group = await getGroup(groupId);
+  if (!group) throw new Error('休止グループが見つかりません');
+  const ids = tabs.map((t) => t.id);
+  const pinned = tabs.filter((t) => t.pinned).map((t) => t.id);
+  for (const id of pinned) await chrome.tabs.update(id, { pinned: false }).catch(() => {});
+  const moving = tabs.filter((t) => t.windowId !== group.windowId).map((t) => t.id);
+  if (moving.length) await chrome.tabs.move(moving, { windowId: group.windowId, index: -1 });
+  const inWindow = await chrome.tabs.query({ windowId: group.windowId });
+  const front = inWindow.find((t) => t.active);
+  if (front && ids.includes(front.id)) {
+    const map = await getParked();
+    const other = inWindow.find((t) => !ids.includes(t.id) && !map[t.groupId]);
+    if (other) await chrome.tabs.update(other.id, { active: true }).catch(() => {});
+    else await chrome.tabs.create({ windowId: group.windowId, active: true });
+  }
+  await chrome.tabs.group({ tabIds: ids, groupId: Number(groupId) });
+  await chrome.tabGroups.update(Number(groupId), { collapsed: true }).catch(() => {});
+  const map = await getParked();
+  const record = map[groupId];
+  if (record) {
+    record.pinned = [...new Set([...(record.pinned || []), ...pinned])];
+    await setParked(map);
+  }
+}

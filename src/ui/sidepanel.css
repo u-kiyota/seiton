@@ -175,3 +175,13 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .ws-head button.act { visibility: hidden; flex: none; padding: 1px 5px; }
 .ws-head:hover button.act, .ws.sel > .ws-head button.act { visibility: visible; }
 .badge.parked { border: 1px solid var(--border); color: var(--fg-sub); white-space: nowrap; }
+
+/* タブの選択と別のワークスペースへの移動（issue #33）: チェックボックスはマウスを乗せたとき・チェック中・1 件でも選んでいる間だけ出す */
+.entry input.check { visibility: hidden; margin: 0; flex: none; cursor: pointer; }
+.entry:hover input.check, .entry.checked input.check, .selecting .entry input.check { visibility: visible; }
+.entry.checked { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.sel-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: none;
+  padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-sub); font-size: 12px;
+}
+.sel-bar select { max-width: 240px; }

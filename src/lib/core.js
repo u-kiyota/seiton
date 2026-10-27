@@ -1020,3 +1020,65 @@ export function switchKeyHints(defaultMode) {
     ctrl: resolveSwitchMode({ ctrlKey: true }, defaultMode),
   };
 }
+
+// ---- タブを別のワークスペースへ移動（issue #33） ----
+
+/**
+ * 開いているタブが属するワークスペース: 休止グループに入っていればそのワークスペース、そうでなければウィンドウのワークスペース。
+ * parkedRecords: storage.session の parked（{ [groupId]: { workspaceId, ... } }）。未割り当てなら null
+ */
+export function workspaceOfTab(tab, bindings, parkedRecords = {}) {
+  const gid = tab?.groupId;
+  const rec = gid !== undefined && gid !== -1 ? parkedRecords?.[gid] : null;
+  if (rec?.workspaceId) return rec.workspaceId;
+  return bindings?.[tab?.windowId] || null;
+}
+
+/**
+ * 保存タブ entries を tabs の末尾に足す（同じ URL があるものは足さない）。足すタブは前面にせず、グループにも入れない。
+ * 戻り値: { tabs, added }
+ */
+export function appendSavedTabs(tabs, entries) {
+  const out = [...(tabs || [])];
+  const seen = new Set(out.map((t) => normalizeUrlForMatch(t?.url)));
+  let added = 0;
+  for (const e of entries || []) {
+    const key = normalizeUrlForMatch(e?.url);
+    if (!key || !isRestorableUrl(e.url) || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...e, active: false, groupKey: null });
+    added++;
+  }
+  return { tabs: out, added };
+}
+
+/** 保存タブから urls（フラグメント・末尾スラッシュ無視）のものを外す */
+export function removeSavedTabsByUrl(tabs, urls) {
+  const drop = new Set((urls || []).map(normalizeUrlForMatch).filter(Boolean));
+  return (tabs || []).filter((t) => !drop.has(normalizeUrlForMatch(t?.url)));
+}
+
+/**
+ * 保存タブから picks（[{ index, url }]）のタブを取り出す。index の位置の URL が一致するものだけ（一覧を見ている間に変わっていたら飛ばす）。
+ * 戻り値: { kept, taken }（どちらも元の順）
+ */
+export function takeSavedTabs(tabs, picks) {
+  const want = new Set();
+  for (const p of picks || []) {
+    const t = (tabs || [])[p?.index];
+    if (t && normalizeUrlForMatch(t.url) === normalizeUrlForMatch(p.url)) want.add(p.index);
+  }
+  const kept = [];
+  const taken = [];
+  (tabs || []).forEach((t, i) => (want.has(i) ? taken : kept).push(t));
+  return { kept, taken };
+}
+
+/** 移動の結果のトースト文言。mode: window（開いているウィンドウへ）/ parked（休止グループへ）/ saved（保存タブに加えて閉じた） */
+export function moveTabsMessage({ moved, skipped = 0, mode, workspaceName }) {
+  const where = mode === 'window' ? 'のウィンドウへ移しました'
+    : mode === 'parked' ? 'の休止グループへ移しました'
+      : 'の保存タブに加えました';
+  const msg = `${moved} 個のタブを「${workspaceName}」${where}`;
+  return skipped ? `${msg}（${skipped} 個は対象外）` : msg;
+}

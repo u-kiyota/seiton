@@ -133,7 +133,7 @@ export async function clearCookieJars() {
 }
 
 /** 設定画面・セッション管理の表示用: 権限の有無、今の Cookie のセッション、各セッションの退避 Cookie の件数と主なサイト */
-export async function cookieStatus(state, { hosts = 8 } = {}) {
+export async function cookieStatus(state, { hosts = 8, live = true } = {}) {
   const permitted = await hasCookiePermission();
   const jars = await getJars();
   const out = { permitted, enabled: !!state?.settings?.cookieIsolation, cookieSessionId: await getCookieSessionId(), jars: {}, live: null };
@@ -142,10 +142,10 @@ export async function cookieStatus(state, { hosts = 8 } = {}) {
     if (!jar) continue;
     out.jars[id] = { savedAt: jar.savedAt, count: jar.cookies.length, hosts: cookieHosts(jar.cookies).slice(0, hosts) };
   }
-  if (permitted) {
+  if (permitted && live) {
     try {
-      const live = await readAllCookies();
-      out.live = { count: live.length, hosts: cookieHosts(live).slice(0, hosts) };
+      const all = await readAllCookies();
+      out.live = { count: all.length, hosts: cookieHosts(all).slice(0, hosts) };
     } catch { /* 権限が取り消された直後など */ }
   }
   return out;

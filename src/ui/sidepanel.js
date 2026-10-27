@@ -15,6 +15,10 @@ let windowId;
 // パネル自身のポップアップウィンドウ。タブとして開かれた場合（旧版の名残など）は null で、自動では閉じない
 let selfWindowId = null;
 let data = { state: null, bindings: {} };
+// Cookie の分離の状態（issue #12）。✎ のヒントとセッション管理の表示に使う。live（今の Cookie の件数）は重いので取らない
+let cookieInfo = null;
+// manifest の optional_permissions / optional_host_permissions と一致させる（lib/cookies.js の COOKIE_PERMISSION と同じ）
+const COOKIE_PERMISSION = { permissions: ['cookies'], origins: ['<all_urls>'] };
 let selectedId = null;
 let editingId = null;
 let folders = null; // 接続先フォルダ候補（編集を開いた時に読み込む）
@@ -128,6 +132,9 @@ function ensureSelection() {
 
 async function load() {
   data = await call('getState');
+  try {
+    cookieInfo = await call('getCookieStatus', { live: false });
+  } catch { cookieInfo = null; }
   ensureSelection();
   syncBookmarkCache();
   render();
@@ -310,6 +317,9 @@ function renderEditor(ws) {
     h('label', {}, h('span', {}, '色'), colors),
     h('div', { class: 'row' }, h('span', { class: 'edit-label' }, 'アイコン'), icon),
     h('label', {}, h('span', {}, '使うセッション'), session),
+    cookieInfo && !(cookieInfo.enabled && cookieInfo.permitted)
+      ? h('div', { class: 'muted small', style: { margin: '-4px 0 4px' } }, 'Cookie の分離は OFF（セッションはラベルだけ）。ヘッダーの「セッション」から ON にできます')
+      : null,
     h('label', {}, h('span', {}, 'ブックマーク'), folderSel),
     h('label', { title: '長期間使っていないタブを自動で閉じるか（設定画面の値をこのワークスペースだけ上書き）' }, h('span', {}, '自動クローズ'), acMode),
     ac?.enabled ? h('div', { class: 'row' }, h('span', { class: 'edit-label' }, '閉じるまで'), acValue, acUnit, h('span', { class: 'muted small' }, '（最後に使ってから）')) : null,
@@ -721,7 +731,10 @@ async function renderSessionDialog() {
   const isolating = !!(cookie?.enabled && cookie.permitted);
   $('sessionCookieNote').textContent = isolating
     ? `Cookie の分離: ON。別のセッションのワークスペースに切り替えると、Cookie（ログイン状態）をそのセッションのものに入れ替えます（全ウィンドウに及びます）。今の Cookie: 「${state.sessions[cookie.cookieSessionId]?.name || '不明'}」`
-    : 'Cookie の分離: OFF（セッションはラベルだけです）。設定画面の「セッション」で ON にすると、セッションごとにログイン状態を分けられます。';
+    : (cookie?.enabled && !cookie.permitted
+      ? 'Cookie の分離: 設定は ON ですが権限が無いため働いていません。「権限を許可して ON にする」で許可し直してください。'
+      : 'Cookie の分離: OFF（セッションはラベルだけです）。ON にすると、セッションごとに Cookie（ログイン状態）を分けて使えます。今 Chrome に入っている Cookie は、このウィンドウのワークスペースのセッションのものになります。');
+  $('sessionCookieToggleSlot').replaceChildren(cookie ? cookieToggleButton(cookie, isolating) : '');
   const cookieBadge = (id) => {
     if (!isolating) return null;
     if (id === cookie.cookieSessionId) return h('span', { class: 'badge here', title: '今 Chrome に入っている Cookie はこのセッションのものです' }, '🍪 今の Cookie');
@@ -751,6 +764,33 @@ async function renderSessionDialog() {
       }), { disabled: state.sessionOrder.length <= 1, title: state.sessionOrder.length <= 1 ? '最後のセッションは削除できません' : (isolating ? '削除（ワークスペースは消えません。退避した Cookie は消えます）' : '削除（ワークスペースは消えません）') }),
     );
   }));
+}
+
+/** セッション管理の「Cookie の分離を ON / OFF にする」。ON は権限の要求を伴うので、クリックの直後に permissions.request を呼ぶ */
+function cookieToggleButton(cookie, isolating) {
+  if (isolating) {
+    return confirmButton('Cookie の分離を OFF にする', '本当に OFF？', () => attempt(async () => {
+      await call('setCookieIsolation', { enabled: false });
+      toast('Cookie の分離を OFF にしました（退避した Cookie は残しています）');
+      await renderSessionDialog();
+    }), { title: '権限を返上します。退避した Cookie は残るので、再度 ON にすれば続きから使えます' });
+  }
+  const label = cookie.enabled && !cookie.permitted ? '権限を許可して ON にする' : 'Cookie の分離を ON にする';
+  return h('button', {
+    type: 'button', class: 'primary', title: 'Cookie を読み書きする権限（すべてのサイト）の確認が出ます',
+    onclick: () => attempt(async () => {
+      const granted = await chrome.permissions.request(COOKIE_PERMISSION);
+      if (!granted) {
+        toast('権限が許可されなかったため ON にできません', true);
+        return;
+      }
+      // 今 Chrome に入っている Cookie は、このウィンドウのワークスペースのセッション（無ければ最後に使ったワークスペースのセッション）のものとして扱う
+      const sessionId = data.state.workspaces[data.bindings[windowId]]?.sessionId;
+      const res = await call('setCookieIsolation', { enabled: true, sessionId });
+      toast(`Cookie の分離を ON にしました。今の Cookie はセッション「${data.state.sessions[res.cookieSessionId]?.name || ''}」のものです`);
+      await renderSessionDialog();
+    }),
+  }, label);
 }
 
 $('sessions').addEventListener('click', () => {

@@ -357,7 +357,7 @@ const readOnly = {
   // 自動クローズで閉じたタブの履歴（新しい順）
   listClosedTabs: () => listClosedTabs(),
   // Cookie の分離の状態（権限・今の Cookie のセッション・各セッションの退避 Cookie の件数）
-  getCookieStatus: async () => cookieStatus(await loadState()),
+  getCookieStatus: async ({ live = true } = {}) => cookieStatus(await loadState(), { live }),
 };
 
 const mutating = {

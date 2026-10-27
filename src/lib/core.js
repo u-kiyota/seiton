@@ -17,9 +17,6 @@ export const DEFAULT_SETTINGS = {
   autoCloseExclude: Object.freeze([]),
   // ウィンドウの左端に、今のワークスペースを示す専用タブ（色付きのタブグループ）を置く
   workspaceTab: true,
-  // セッションごとに Cookie（ログイン状態）を分ける（issue #12）。切替時に Cookie を退避 / 復元する。
-  // 任意権限（cookies + <all_urls>）が必要なので、設定画面の setCookieIsolation 経由でだけ ON にする（updateSettings では変えない）
-  cookieIsolation: false,
 };
 
 export const COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
@@ -92,7 +89,8 @@ export function normalizeState(raw) {
   };
   state.settings.autoClose = normalizeAutoClose(state.settings.autoClose);
   state.settings.autoCloseExclude = normalizeExcludePatterns(state.settings.autoCloseExclude);
-  state.settings.cookieIsolation = state.settings.cookieIsolation === true;
+  // 旧版の「Cookie の分離の ON / OFF」は廃止（権限があれば常に分ける）。残っていたら捨てる
+  delete state.settings.cookieIsolation;
   state.sessionOrder = (Array.isArray(raw.sessionOrder) ? raw.sessionOrder : []).filter((id) => sessions[id]);
   for (const id of Object.keys(sessions)) {
     if (!state.sessionOrder.includes(id)) state.sessionOrder.push(id);

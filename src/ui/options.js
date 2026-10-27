@@ -160,8 +160,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // manifest の optional_permissions / optional_host_permissions と一致させる（lib/cookies.js の COOKIE_PERMISSION と同じ）
 const COOKIE_PERMISSION = { permissions: ['cookies'], origins: ['<all_urls>'] };
-let cookieBusy = false;
-
 const clearCookieBtn = confirmButton('退避した Cookie を削除', '本当に削除？', () => attempt(async () => {
   await call('clearCookieJars');
   toast('退避した Cookie を削除しました');
@@ -175,18 +173,12 @@ function hostsText(info) {
   return info.hosts.length < info.count ? `${names}, …` : names;
 }
 
-/** 設定・権限・退避 Cookie の状態を描く。state を省略すると取り直す */
+/** 権限・退避 Cookie の状態を描く。state を省略すると取り直す */
 async function renderCookie(state) {
   if (!state) ({ state } = await call('getState'));
   const st = await call('getCookieStatus');
-  const active = st.enabled && st.permitted;
-  $('cookieIsolation').checked = active;
-  // ON にするときに「今の Cookie はどのセッションのものか」を選ぶ（既定: 最後に使ったワークスペースのセッション）
-  const last = state.workspaces[state.lastFocusedWorkspaceId]?.sessionId;
-  const preset = st.cookieSessionId && state.sessions[st.cookieSessionId] ? st.cookieSessionId : (state.sessions[last] ? last : state.sessionOrder[0]);
-  $('cookieSession').replaceChildren(...state.sessionOrder.map((id) =>
-    h('option', { value: id, selected: id === preset }, state.sessions[id].name)));
-  $('cookieEnableField').hidden = active;
+  const active = st.permitted;
+  const multi = state.sessionOrder.length > 1;
 
   const rows = state.sessionOrder.map((id) => {
     const now = active && id === st.cookieSessionId;
@@ -202,11 +194,10 @@ async function renderCookie(state) {
       h('td', {}, info ? `${info.count} 件` : '—', info?.count ? h('div', { class: 'hosts' }, hostsText(info)) : null));
   });
   const jarCount = Object.keys(st.jars).length;
-  const head = active
-    ? `ON: 今 Chrome に入っている Cookie はセッション「${state.sessions[st.cookieSessionId]?.name || '不明'}」のものとして扱っています。`
-    : (st.enabled && !st.permitted
-      ? 'OFF: 権限が許可されていないため働いていません。チェックを入れ直して権限を許可してください。'
-      : (jarCount ? 'OFF（退避した Cookie が残っています。ON にすると続きから使えます）' : 'OFF'));
+  let head;
+  if (active) head = `今 Chrome に入っている Cookie はセッション「${state.sessions[st.cookieSessionId]?.name || '不明'}」のものとして扱っています。`;
+  else if (multi) head = '権限が許可されていないため、今はセッション間で Cookie が分かれていません。「権限を許可する」で許可してください。';
+  else head = 'セッションは 1 つです。管理パネルの「セッション」で追加すると権限の確認が出て、許可すると分かれます。';
   $('cookieStatus').replaceChildren(
     h('div', {}, head),
     h('table', {},
@@ -214,45 +205,24 @@ async function renderCookie(state) {
       h('tbody', {}, rows)),
   );
   clearCookieBtn.disabled = !jarCount;
-}
-
-$('cookieIsolation').addEventListener('change', async (e) => {
-  if (cookieBusy) return;
-  cookieBusy = true;
-  const on = e.target.checked;
-  try {
-    if (on) {
+  $('cookieGrantSlot').replaceChildren(!active && multi ? h('button', {
+    type: 'button', class: 'primary', title: 'Cookie を読み書きする権限（すべてのサイト）の確認が出ます',
+    onclick: () => attempt(async () => {
       // 権限の要求はユーザー操作の直後に（await を挟むと操作扱いにならないことがある）
-      let granted = false;
-      try {
-        granted = await chrome.permissions.request(COOKIE_PERMISSION);
-      } catch (err) {
-        toast(err?.message || String(err), true);
-      }
-      if (!granted) {
-        e.target.checked = false;
-        toast('権限が許可されなかったため ON にできません', true);
-        return;
-      }
-      const res = await attempt(() => call('setCookieIsolation', { enabled: true, sessionId: $('cookieSession').value }));
-      if (res) {
-        const { state } = await call('getState');
-        toast(`ON にしました。今の Cookie はセッション「${state.sessions[res.cookieSessionId]?.name || ''}」のものです`);
-      }
-    } else {
-      const res = await attempt(() => call('setCookieIsolation', { enabled: false }));
-      if (res) toast('OFF にしました（退避した Cookie は残しています）');
-    }
-  } finally {
-    cookieBusy = false;
-    await attempt(() => renderCookie());
-  }
-});
+      const granted = await chrome.permissions.request(COOKIE_PERMISSION);
+      if (!granted) { toast('権限が許可されなかったため、Cookie は分かれません', true); return; }
+      const res = await call('grantCookieIsolation', {});
+      const { state: s } = await call('getState');
+      toast(`許可しました。今の Cookie はセッション「${s.sessions[res.cookieSessionId]?.name || ''}」のものとして扱います`);
+      await renderCookie();
+    }),
+  }, '権限を許可する') : '');
+}
 
 // ワークスペースの切替で「今の Cookie のセッション」が変わったら表示を更新する
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local' || cookieBusy) return;
-  if (changes.cookieSessionId || changes.cookieJars) attempt(() => renderCookie());
+  if (area !== 'local') return;
+  if (changes.cookieSessionId || changes.cookieJars || changes.state) attempt(() => renderCookie());
 });
 
 attempt(load);

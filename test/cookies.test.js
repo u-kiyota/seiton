@@ -7,7 +7,7 @@ const fake = makeFakeChrome();
 globalThis.chrome = fake.chrome;
 const {
   swapCookies, ensureCookieSession, needsCookieSwap, forgetSessionJar, clearCookieJars, cookieStatus,
-  reconcileCookieIsolation, getCookieSessionId, COOKIE_JARS_KEY, COOKIE_SESSION_KEY,
+  adoptCookieSession, getCookieSessionId, COOKIE_JARS_KEY, COOKIE_SESSION_KEY,
 } = await import('../src/lib/cookies.js');
 
 function cookie(name, domain, extra = {}) {
@@ -72,9 +72,11 @@ function makeFakeChrome() {
 }
 
 const state = () => ({
-  settings: { cookieIsolation: true },
+  settings: {},
   sessions: { A: { id: 'A', name: '本番' }, B: { id: 'B', name: '開発' } },
   sessionOrder: ['A', 'B'],
+  workspaces: { w1: { id: 'w1', sessionId: 'B' } },
+  lastFocusedWorkspaceId: 'w1',
 });
 
 beforeEach(() => fake.reset());
@@ -134,13 +136,11 @@ test('swapCookies: from が不明なら消さず、今の Cookie を to のも�
   assert.equal(fake.store[COOKIE_JARS_KEY], undefined, '何も退避しない');
 });
 
-test('ensureCookieSession / needsCookieSwap: 分離 OFF・権限なし・同じセッションでは何もしない', async () => {
+test('ensureCookieSession / needsCookieSwap: 権限なし・同じセッションでは何もしない', async () => {
   fake.reset([cookie('sid', 'github.com')]);
   await fake.chrome.storage.local.set({ [COOKIE_SESSION_KEY]: 'A' });
   assert.equal(await needsCookieSwap(state(), 'A'), false);
   assert.equal(await ensureCookieSession(state(), 'A'), null);
-  assert.equal(await needsCookieSwap({ ...state(), settings: { cookieIsolation: false } }, 'B'), false);
-  assert.equal(await ensureCookieSession({ ...state(), settings: { cookieIsolation: false } }, 'B'), null);
   fake.setPermitted(false);
   assert.equal(await needsCookieSwap(state(), 'B'), false);
   assert.equal(await ensureCookieSession(state(), 'B'), null);
@@ -177,7 +177,6 @@ test('forgetSessionJar / clearCookieJars / cookieStatus', async () => {
   fake.cookies.push(cookie('dev', 'dev.test'));
   const st = await cookieStatus(state());
   assert.equal(st.permitted, true);
-  assert.equal(st.enabled, true);
   assert.equal(st.cookieSessionId, 'B');
   assert.equal(st.jars.A.count, 3);
   assert.deepEqual(st.jars.A.hosts, [{ host: 'google.com', count: 2 }, { host: 'github.com', count: 1 }], '件数の多い順');
@@ -194,12 +193,22 @@ test('forgetSessionJar / clearCookieJars / cookieStatus', async () => {
   assert.equal(await getCookieSessionId(), 'A', '今の Cookie のセッションは残る');
 });
 
-test('reconcileCookieIsolation: 権限が無ければ設定を OFF に戻す', async () => {
-  const s = state();
-  assert.equal(await reconcileCookieIsolation(s), false);
-  assert.equal(s.settings.cookieIsolation, true);
-  fake.setPermitted(false);
-  assert.equal(await reconcileCookieIsolation(s), true);
-  assert.equal(s.settings.cookieIsolation, false);
-  assert.equal(await reconcileCookieIsolation(s), false, 'もう OFF なので変更なし');
+test('adoptCookieSession: 未定なら 指定 → 最後のワークスペース → 先頭 の順で決め、決まっていれば変えない', async () => {
+  let r = await adoptCookieSession(state(), 'A');
+  assert.deepEqual(r, { cookieSessionId: 'A', adopted: true });
+  assert.equal(await getCookieSessionId(), 'A');
+  r = await adoptCookieSession(state(), 'B');
+  assert.deepEqual(r, { cookieSessionId: 'A', adopted: false }, '既に決まっていれば変えない');
+  await fake.chrome.storage.local.set({ [COOKIE_SESSION_KEY]: 'gone' });
+  r = await adoptCookieSession(state(), undefined);
+  assert.deepEqual(r, { cookieSessionId: 'B', adopted: true }, '消えたセッションなら決め直す。指定が無ければ最後に使ったワークスペースのセッション');
+  await fake.chrome.storage.local.remove(COOKIE_SESSION_KEY);
+  r = await adoptCookieSession({ ...state(), lastFocusedWorkspaceId: null }, 'nope');
+  assert.deepEqual(r, { cookieSessionId: 'A', adopted: true }, 'どちらも無ければ先頭');
+});
+
+test('cookieStatus: enabled は無く permitted だけを返す', async () => {
+  const st = await cookieStatus(state(), { live: false });
+  assert.equal('enabled' in st, false);
+  assert.equal(st.permitted, true);
 });

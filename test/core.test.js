@@ -17,11 +17,9 @@ import {
 
 // ---- セッションごとの Cookie の分離（issue #12） ----
 
-test('DEFAULT_SETTINGS / normalizeState: cookieIsolation は既定 OFF で、true 以外は false に揃える', () => {
-  assert.equal(DEFAULT_SETTINGS.cookieIsolation, false);
-  assert.equal(normalizeState(undefined).settings.cookieIsolation, false);
-  assert.equal(normalizeState({ settings: { cookieIsolation: true } }).settings.cookieIsolation, true);
-  assert.equal(normalizeState({ settings: { cookieIsolation: 'yes' } }).settings.cookieIsolation, false);
+test('normalizeState: 旧版の cookieIsolation 設定は捨てる（権限があれば常に分ける）', () => {
+  assert.equal('cookieIsolation' in DEFAULT_SETTINGS, false);
+  assert.equal('cookieIsolation' in normalizeState({ settings: { cookieIsolation: true } }).settings, false);
 });
 
 test('cookieUrl: secure なら https、ドメイン Cookie の先頭の . は外し、パスを付ける', () => {

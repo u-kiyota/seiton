@@ -13,9 +13,10 @@
 //
 // 同期ドキュメントの形:
 //   { v, settings, settingsAt, sessions: { id: { name, createdAt, updatedAt } }, sessionOrder, workspaceOrder, orderAt,
-//     workspaces: { id: { name, color, icon, sessionId, autoClose, folder, createdAt, updatedAt, lastOpenedAt, tabs, groups, tabsOmitted? } } }
+//     workspaces: { id: { name, color, icon, sessionId, autoClose, folder, createdAt, updatedAt, lastOpenedAt, tabs, groups, shelf, tabsOmitted? } } }
 //   folder: null | { path: [フォルダ名, ...], managed }（ブックマークの ID はブラウザごとに違うので、パスで持つ）
 //   tabs: [{ u, t, p?, g?, a? }]（url / title / pinned / groupKey / active）
+//   shelf: [{ u, t? }]（よく開くタブ置き場。issue #34。タブと同じ縮約形で、容量超過でも省かない）
 
 export const SYNC_DOC_VERSION = 1;
 /** chrome.storage.sync の制約（実行時に chrome.storage.sync.QUOTA_BYTES などがあればそちらを使う） */
@@ -94,6 +95,14 @@ export function syncTabsFrom(tabs) {
   return (Array.isArray(tabs) ? tabs : []).filter((t) => t && typeof t.url === 'string' && t.url).map(syncTab);
 }
 
+/** よく開くタブ置き場（issue #34）の縮約形 [{ u, t? }] → [{ url, title }] */
+export function shelfFromSync(list) {
+  return (Array.isArray(list) ? list : []).filter((t) => t && typeof t.u === 'string' && t.u).map((t) => ({
+    url: t.u,
+    title: typeof t.t === 'string' && t.t ? t.t : t.u,
+  }));
+}
+
 /** 同期用の縮約形 → 保存タブ（favicon と最終アクセス時刻は無い） */
 export function tabsFromSync(list) {
   return (Array.isArray(list) ? list : []).filter((t) => t && typeof t.u === 'string' && t.u).map((t) => ({
@@ -133,6 +142,7 @@ export function syncWorkspaceEntry(ws, folderPath) {
     lastOpenedAt: Number.isFinite(ws.lastOpenedAt) ? ws.lastOpenedAt : 0,
     tabs: syncTabsFrom(ws.tabs),
     groups: groupsFrom(ws.groups),
+    shelf: syncTabsFrom(ws.shelf),
   };
 }
 
@@ -334,6 +344,8 @@ export function applySyncDoc(state, doc, { folderIds = {} } = {}) {
       ws.tabs = tabsFromSync(e.tabs);
       ws.groups = groupsFrom(e.groups);
     }
+    // よく開くタブ置き場（issue #34）: 内容が同じなら今のものを保つ
+    ws.shelf = prev && same(syncTabsFrom(prev.shelf), e.shelf || []) ? (prev.shelf || []) : shelfFromSync(e.shelf);
     // 接続フォルダ: パスから引けたらその ID、引けなければ未接続のままパスだけ覚えておく（後で引き直す・そのまま同期し返す）
     if (!e.folder) {
       ws.bookmarkFolderId = null;

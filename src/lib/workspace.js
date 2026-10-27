@@ -573,6 +573,7 @@ export async function createWorkspace({ name, sessionId, color, icon, fromWindow
     sessionId: sid,
     tabs: [],
     groups: {},
+    shelf: [], // よく開くタブ置き場（issue #34）
     bookmarkFolderId: null,
     bookmarkFolderManaged: false,
     createdAt: Date.now(),

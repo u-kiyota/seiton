@@ -3,6 +3,7 @@ import {
   TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl, workspaceHotkey, hotkeyToIndex,
   autoCloseDaysFrom, autoCloseDuration, formatAutoCloseDuration, AUTO_CLOSE_UNIT_LABELS,
   autoCloseExcludeMatch, excludePatternsForUrl, resolveSwitchMode, switchKeyHints, SWITCH_MODE_SHORT, moveTabsMessage,
+  SHELF_DRAG_TYPE, parseShelfDragData, dropPlacement, reorderDropIndex,
 } from '../lib/core.js';
 import { iconPicker, makeWorkspaceDraggable, makeWorkspaceDropTarget } from './manage.js';
 import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt, confirmButton } from './api.js';
@@ -583,12 +584,13 @@ function renderBookmarks() {
   for (const key of groups) {
     if (key || groups.length > 1) nodes.push(h('div', { class: 'group-label' }, key || '直下'));
     for (const it of map.get(key)) {
-      nodes.push(entryRow({
+      // 行をドラッグして「よく開くタブ」に登録できる（issue #34）
+      nodes.push(makeTabDraggable(entryRow({
         url: it.url,
         title: it.title,
         sub: hostOf(it.url),
         onOpen: () => openSingle(it.url),
-      }));
+      }), { url: it.url, title: it.title }));
     }
   }
   body.replaceChildren(...nodes);
@@ -599,6 +601,151 @@ makeTabDropTarget($('bookmarks'), () => {
   const ws = data.state?.workspaces[selectedId];
   return ws?.bookmarkFolderId ? ws : null;
 });
+
+// ---- よく開くタブ置き場（issue #34）: ブックマークの下。行のドラッグ＆ドロップで登録、× で外す、行のドラッグで並び替え ----
+
+function hasShelfDrag(e) {
+  return !!e.dataTransfer && [...e.dataTransfer.types].includes(SHELF_DRAG_TYPE);
+}
+
+let draggingShelfUrl = null;
+
+function clearShelfMarks() {
+  for (const el of document.querySelectorAll('#shelf .drop-before, #shelf .drop-after')) el.classList.remove('drop-before', 'drop-after');
+}
+
+/** 置き場の行をドラッグ可能にする（置き場内の並び替え。タブとしての形式も付けるので、ブックマーク一覧やワークスペース行にも落とせる） */
+function makeShelfDraggable(row, item) {
+  row.draggable = true;
+  row.addEventListener('dragstart', (e) => {
+    suppressRowClick = true;
+    draggingShelfUrl = item.url;
+    const dt = e.dataTransfer;
+    dt.effectAllowed = 'copyMove';
+    dt.setData(SHELF_DRAG_TYPE, JSON.stringify({ url: item.url }));
+    dt.setData(TAB_DRAG_TYPE, JSON.stringify({ url: item.url, title: item.title }));
+    dt.setData('text/uri-list', item.url);
+    dt.setData('text/plain', item.url);
+    row.classList.add('dragging');
+  });
+  row.addEventListener('dragend', () => {
+    draggingShelfUrl = null;
+    row.classList.remove('dragging');
+    clearDropTargets();
+    clearShelfMarks();
+  });
+  row.addEventListener('click', (e) => {
+    if (!suppressRowClick) return;
+    suppressRowClick = false;
+    e.stopImmediatePropagation();
+  }, true);
+  return row;
+}
+
+/** 置き場の行を並び替えのドロップ先にする（行の上半分 = 前、下半分 = 後） */
+function makeShelfReorderTarget(row, url) {
+  const order = () => (data.state?.workspaces[selectedId]?.shelf || []).map((it) => it.url);
+  const indexFor = (e, dragged) => {
+    const r = row.getBoundingClientRect();
+    const placement = dropPlacement(e.clientY - r.top, r.height);
+    return { placement, toIndex: reorderDropIndex(order(), dragged, url, placement) };
+  };
+  row.addEventListener('dragover', (e) => {
+    if (!hasShelfDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    const { placement, toIndex } = draggingShelfUrl ? indexFor(e, draggingShelfUrl) : { placement: null, toIndex: null };
+    row.classList.toggle('drop-before', toIndex !== null && placement === 'before');
+    row.classList.toggle('drop-after', toIndex !== null && placement === 'after');
+  });
+  row.addEventListener('dragleave', (e) => {
+    if (e.relatedTarget && row.contains(e.relatedTarget)) return;
+    row.classList.remove('drop-before', 'drop-after');
+  });
+  row.addEventListener('drop', (e) => {
+    if (!hasShelfDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    clearShelfMarks();
+    const dragged = parseShelfDragData((t) => e.dataTransfer.getData(t));
+    if (!dragged) return;
+    const { toIndex } = indexFor(e, dragged);
+    if (toIndex === null) return;
+    attempt(() => call('reorderShelf', { workspaceId: selectedId, url: dragged, toIndex }));
+  });
+}
+
+/** 置き場（見出しと本体）を、開いているタブ / 保存済みタブ / ブックマークの行のドロップ先にする */
+function makeShelfDropTarget(el) {
+  el.addEventListener('dragover', (e) => {
+    if (!hasTabDrag(e) || hasShelfDrag(e) || !data.state?.workspaces[selectedId]) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    el.classList.add('drop-target');
+  });
+  el.addEventListener('dragleave', (e) => {
+    if (e.relatedTarget && el.contains(e.relatedTarget)) return;
+    el.classList.remove('drop-target');
+  });
+  el.addEventListener('drop', (e) => {
+    if (!hasTabDrag(e) || hasShelfDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    clearDropTargets();
+    const ws = data.state?.workspaces[selectedId];
+    const item = parseTabDragData((type) => e.dataTransfer.getData(type));
+    if (ws && item) attempt(() => addToShelf(ws, item));
+  });
+}
+
+async function addToShelf(ws, { url, title }) {
+  if (!isBookmarkableUrl(url)) {
+    toast('このページは置き場に登録できません', true);
+    return;
+  }
+  const res = await call('addShelfItem', { workspaceId: ws.id, url, title });
+  toast(res.added ? `「${res.workspaceName}」のよく開くタブに登録しました` : '既に登録されています');
+}
+
+function removeFromShelf(wsId, url) {
+  return attempt(async () => {
+    await call('removeShelfItem', { workspaceId: wsId, url });
+    toast('よく開くタブから外しました');
+  });
+}
+
+function renderShelf() {
+  const ws = data.state.workspaces[selectedId];
+  const title = $('shelfTitle');
+  const body = $('shelf');
+  title.hidden = !ws;
+  body.hidden = !ws;
+  if (!ws) {
+    body.replaceChildren();
+    return;
+  }
+  const items = ws.shelf || [];
+  title.textContent = items.length ? `よく開くタブ（${items.length}）` : 'よく開くタブ';
+  if (!items.length) {
+    body.replaceChildren(h('div', { class: 'shelf-empty' },
+      'ブックマークするほどではないが、よく開くページの置き場です。開いているタブ・保存済みタブ・ブックマークの行をここにドラッグ＆ドロップすると登録されます。'));
+    return;
+  }
+  body.replaceChildren(...items.map((it) => {
+    const row = entryRow({
+      url: it.url, title: it.title, sub: hostOf(it.url),
+      onOpen: () => openSingle(it.url),
+      onClose: () => removeFromShelf(ws.id, it.url), closeTitle: 'よく開くタブから外す',
+    });
+    makeShelfDraggable(row, it);
+    makeShelfReorderTarget(row, it.url);
+    return row;
+  }));
+}
+
+makeShelfDropTarget($('shelf'));
+makeShelfDropTarget($('shelfTitle'));
 
 function renderTabs() {
   const view = detail.tabsView;
@@ -627,14 +774,15 @@ function renderTabs() {
         lastGroup = t.groupKey;
         if (t.groupKey) nodes.push(h('div', { class: 'group-label' }, view.groups?.[t.groupKey]?.title || 'グループ'));
       }
-      nodes.push(entryRow({
+      // 行をドラッグして「よく開くタブ」やブックマークに登録できる（issue #34）
+      nodes.push(makeTabDraggable(entryRow({
         url: t.url,
         title: (t.pinned ? '📌 ' : '') + (t.title || t.url),
         sub: hostOf(t.url),
         active: !!t.active,
         check: { on: checked.has(i), onToggle: (e) => toggleChecked(keys, i, e) },
         onOpen: () => openSingle(t.url),
-      }));
+      }), { url: t.url, title: t.title }));
     });
     body.replaceChildren(...nodes);
     return;
@@ -932,6 +1080,7 @@ function render() {
   renderDetailHead();
   renderList();
   renderBookmarks();
+  renderShelf();
   renderTabs();
 }
 
@@ -1128,6 +1277,25 @@ async function runSearch() {
     }));
   }
 
+  // よく開くタブ置き場（全ワークスペース。issue #34）
+  const shelfHits = [];
+  for (const id of state.workspaceOrder) {
+    for (const it of state.workspaces[id].shelf || []) {
+      if (matchesQuery(`${it.title} ${it.url} ${state.workspaces[id].name}`, q)) shelfHits.push({ ...it, workspaceId: id });
+    }
+  }
+  if (shelfHits.length) {
+    section(`よく開くタブ（${shelfHits.length}）`);
+    for (const s of shelfHits.slice(0, 20)) {
+      push(searchEntry({
+        url: s.url,
+        title: s.title,
+        sub: state.workspaces[s.workspaceId]?.name || hostOf(s.url),
+        run: (mode) => attempt(async () => { await openUrlIn(s.url, mode === 'window' ? null : s.workspaceId); clearSearch(); }),
+      }));
+    }
+  }
+
   // ブックマーク（全ワークスペースの接続フォルダ）
   let folders = [];
   try { folders = await allBookmarks(); } catch { /* 読み込み失敗時は空扱い */ }
@@ -1157,7 +1325,7 @@ async function runSearch() {
     console.warn('[search] history', e);
   }
   if (seq !== searchSeq) return;
-  const seen = new Set(bms.map((b) => normalizeUrlForMatch(b.url)));
+  const seen = new Set([...bms, ...shelfHits].map((b) => normalizeUrlForMatch(b.url)));
   const histList = [];
   for (const hItem of hist.sort((a, b) => (b.lastVisitTime || 0) - (a.lastVisitTime || 0))) {
     const key = normalizeUrlForMatch(hItem.url);

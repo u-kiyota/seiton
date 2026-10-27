@@ -2,7 +2,7 @@
 // UI（管理パネル / ポップアップ / オプション）は runtime.sendMessage 経由でここに依頼する。
 import {
   shouldRouteBookmark, neighborWorkspace, tabUrl, normalizeState, isManagerUrl, normalizeAutoClose, normalizeSwitchMode,
-  isWorkspaceTabUrl, workspaceTabEnabled, normalizeExcludePattern, normalizeExcludePatterns,
+  isWorkspaceTabUrl, workspaceTabEnabled, normalizeExcludePattern, normalizeExcludePatterns, shelfAdd, shelfRemove, shelfMove,
 } from './lib/core.js';
 import { openManager, toggleManager } from './lib/manager.js';
 import { serialize, loadState, saveState, mutate, getBindings } from './lib/store.js';
@@ -352,7 +352,8 @@ async function getPalette(windowId) {
       id: t.id, title: t.title, url: tabUrl(t), active: t.active, discarded: t.discarded, pinned: t.pinned,
     }));
   const bookmarks = ws?.bookmarkFolderId ? await listFolderBookmarks(ws.bookmarkFolderId) : null;
-  return { state, bindings, workspaceId: wsId || null, tabs, bookmarks };
+  // shelf: よく開くタブ置き場（issue #34）
+  return { state, bindings, workspaceId: wsId || null, tabs, bookmarks, shelf: ws?.shelf || [] };
 }
 
 // 読み取り専用の処理は直列キューを通さずに即応答する
@@ -440,6 +441,34 @@ const mutating = {
     const res = await saveToFolder(ws.bookmarkFolderId, { url, title });
     return { created: !res.duplicated, bookmarkId: res.bookmarkId, workspaceName: ws.name };
   },
+  // よく開くタブ置き場（issue #34）: 追加（同じ URL は足さない）/ 削除 / 並び替え
+  addShelfItem: ({ workspaceId, url, title }) => mutate((state) => {
+    const ws = state.workspaces[workspaceId];
+    if (!ws) throw new Error('ワークスペースが見つかりません');
+    const r = shelfAdd(ws.shelf, { url, title });
+    if (!r.added && !isBookmarkableUrl(url)) throw new Error('このページは置き場に登録できません');
+    if (r.added) {
+      ws.shelf = r.list;
+      ws.updatedAt = Date.now();
+    }
+    return { added: r.added, workspaceName: ws.name };
+  }),
+  removeShelfItem: ({ workspaceId, url }) => mutate((state) => {
+    const ws = state.workspaces[workspaceId];
+    if (!ws) throw new Error('ワークスペースが見つかりません');
+    const r = shelfRemove(ws.shelf, url);
+    if (r.removed) {
+      ws.shelf = r.list;
+      ws.updatedAt = Date.now();
+    }
+    return { removed: r.removed };
+  }),
+  reorderShelf: ({ workspaceId, url, toIndex }) => mutate((state) => {
+    const ws = state.workspaces[workspaceId];
+    if (!ws) throw new Error('ワークスペースが見つかりません');
+    ws.shelf = shelfMove(ws.shelf, url, toIndex);
+    ws.updatedAt = Date.now();
+  }),
   linkFolder: ({ workspaceId, folderId }) =>
     updateWorkspace(workspaceId, { bookmarkFolderId: folderId || null, bookmarkFolderManaged: false }),
   saveCurrentTab: ({ windowId }) => saveCurrentTab(windowId),

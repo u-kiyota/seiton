@@ -238,7 +238,84 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes.cookieSessionId || changes.cookieJars || changes.state) attempt(() => renderCookie());
 });
 
+// ---- 同期（issue #4） ----
+
+const clearSyncBtn = confirmButton('同期データを削除', '本当に削除？', () => attempt(async () => {
+  const st = await call('clearSyncData');
+  toast('同期ストレージを空にして、同期を OFF にしました');
+  renderSync(st);
+}), { title: '同期ストレージ（chrome.storage.sync）を空にして、この端末の同期を OFF にする（各端末のローカルの内容は消えません）' });
+$('clearSyncSlot').append(clearSyncBtn);
+
+function kb(n) {
+  return `${(n / 1024).toFixed(1)} KB`;
+}
+
+/** 同期の状態を描く。st を省略すると取り直す */
+async function renderSync(st) {
+  if (!st) st = await call('getSyncStatus');
+  $('syncEnabled').checked = st.enabled;
+  $('syncEnabled').disabled = !st.available;
+  $('syncNow').disabled = !st.enabled || !st.available;
+  const nodes = [];
+  if (!st.available) {
+    nodes.push(h('div', { class: 'err' }, 'このブラウザでは同期ストレージ（chrome.storage.sync）が使えません。'));
+  } else if (!st.enabled) {
+    nodes.push(h('div', { class: 'muted' }, '同期は OFF です。', st.bytesInUse ? ` 同期ストレージには ${kb(st.bytesInUse)} のデータがあります（他の端末が書いたもの、または以前の同期）。ON にすると取り込みます。` : ''));
+  } else {
+    const when = st.lastSyncAt ? new Date(st.lastSyncAt).toLocaleString() : 'まだ同期していません';
+    nodes.push(h('div', {}, h('strong', {}, '最後の同期: '), when, st.applied ? '（他の端末の変更を取り込みました）' : ''));
+    const used = st.bytes ?? st.bytesInUse ?? 0;
+    const ratio = Math.min(1, used / st.quota);
+    nodes.push(h('div', {},
+      `使用量 ${kb(used)} / ${kb(st.quota)}（${Math.round(ratio * 100)}%）`,
+      st.items ? `・${st.items} 項目 / ${st.maxItems}` : ''));
+    nodes.push(h('div', { class: `meter${ratio > 0.85 ? ' warn' : ''}` }, h('div', { style: { width: `${Math.round(ratio * 100)}%` } })));
+    if (st.omitted?.length) {
+      nodes.push(h('div', { class: 'omitted' },
+        `容量に収めるため、次のワークスペースはタブを同期していません（名前・色・セッションは同期しています）: `,
+        st.omitted.map((w) => w.name || w.id).join('、')));
+    }
+    if (st.unreadable?.length) {
+      nodes.push(h('div', { class: 'omitted' }, `読み取れなかったワークスペースが ${st.unreadable.length} 件あります（他の端末が書き込み中の可能性。次の同期で解消します）`));
+    }
+  }
+  if (st.error) nodes.push(h('div', { class: 'err' }, `エラー: ${st.error}`));
+  $('syncStatus').replaceChildren(...nodes);
+  const badge = $('navSyncBadge');
+  badge.hidden = !(st.enabled && (st.error || st.omitted?.length));
+  badge.textContent = st.error ? '!' : String(st.omitted?.length || '');
+}
+
+$('syncEnabled').addEventListener('change', (e) => attempt(async () => {
+  const enabled = e.target.checked;
+  $('syncEnabled').disabled = true;
+  try {
+    const st = await call('setSyncEnabled', { enabled });
+    toast(enabled ? (st.error ? `同期を ON にしましたが失敗しました: ${st.error}` : '同期を ON にして、初回の同期を行いました') : '同期を OFF にしました', !!(enabled && st.error));
+    renderSync(st);
+  } finally {
+    $('syncEnabled').disabled = false;
+  }
+}));
+$('syncNow').addEventListener('click', () => attempt(async () => {
+  $('syncNow').disabled = true;
+  try {
+    const st = await call('syncNow');
+    toast(st.error ? `同期に失敗しました: ${st.error}` : '同期しました', !!st.error);
+    renderSync(st);
+  } finally {
+    $('syncNow').disabled = false;
+  }
+}));
+
+// サービスワーカーが同期を終えたら（状態が更新されたら）表示を更新する
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && (changes.syncStatus || changes.state)) attempt(() => renderSync());
+});
+
 attempt(load);
+attempt(() => renderSync());
 attempt(async () => {
   windowId = (await chrome.windows.getCurrent()).id;
   await loadData();

@@ -44,6 +44,15 @@
     .cookie-status th { color: var(--fg-sub); font-size: 12px; white-space: nowrap; }
     .cookie-status .now { font-weight: 600; }
     .cookie-status .hosts { color: var(--fg-sub); font-size: 12px; }
+    /* 同期（issue #4） */
+    .sync-status { margin: 10px 0 10px; font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+    .sync-status .meter { height: 8px; border-radius: 4px; background: var(--bg-sub); border: 1px solid var(--border); overflow: hidden; max-width: 420px; }
+    .sync-status .meter > div { height: 100%; background: var(--accent); }
+    .sync-status .meter.warn > div { background: #f9ab00; }
+    .sync-status .err { color: var(--danger); }
+    .sync-status .omitted { color: var(--fg-sub); font-size: 12px; }
+    .sync-notes { margin: 6px 0 0; padding-left: 18px; }
+    .sync-notes li { margin: 4px 0; }
     @media (max-width: 760px) {
       .layout { grid-template-columns: 1fr; gap: 16px; }
       .sidenav { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -73,6 +82,7 @@
       <a href="#autoclose">タブの自動クローズ<span class="sidenav-sub">期間・除外 URL</span></a>
       <a href="#bookmarks">ブックマーク<span class="sidenav-sub">自動移動・親フォルダ</span></a>
       <a href="#shortcuts">ショートカット<span class="sidenav-sub">キーの確認・変更</span></a>
+      <a href="#sync">同期<span id="navSyncBadge" class="badge" hidden></span><span class="sidenav-sub">他のブラウザと同期（Chrome の同期ストレージ）</span></a>
       <a href="#backup">バックアップ<span class="sidenav-sub">エクスポート / インポート</span></a>
     </nav>
 
@@ -186,6 +196,32 @@
         <p class="sec-lead">現在この Chrome に割り当てられているキーです。</p>
         <ul id="commands"></ul>
         <button id="openShortcuts">ショートカットを変更（chrome://extensions/shortcuts）</button>
+      </section>
+
+      <section class="sec" id="sec-sync" data-section="sync">
+        <h2>同期</h2>
+        <p class="sec-lead">Chrome / Edge のアカウントに紐づく拡張用の同期ストレージ（<code>chrome.storage.sync</code>）で、ワークスペース・セッション・設定を他のブラウザと同期します。seiton 独自のアカウントやサーバーはありません。ブラウザにログインして「拡張機能」の同期が ON のときに他の端末へ届きます（ログインしていない間はこの端末だけに保存され、ログインすると同期されます）。</p>
+        <div class="field">
+          <label><input id="syncEnabled" type="checkbox"> 他のブラウザとワークスペース・セッション・設定を同期する</label>
+          <div class="desc">ON にすると、この端末の内容と同期ストレージの内容を合わせます（どちらも消えません。同じ ID のワークスペースは新しい方）。以後、変更は数秒後にまとめて書き込まれ、他の端末の変更は届き次第取り込まれます。OFF にしても同期ストレージの内容は残り、他の端末は同期を続けます。</div>
+        </div>
+        <div id="syncStatus" class="sync-status"></div>
+        <div class="row">
+          <button id="syncNow">今すぐ同期</button>
+          <span id="clearSyncSlot"></span>
+          <span class="muted small">「同期データを削除」は同期ストレージを空にして、この端末の同期を OFF にします（各端末のローカルの内容は消えません）。</span>
+        </div>
+
+        <h3>同期される内容と制限</h3>
+        <div class="desc exclude-desc">
+          <ul class="sync-notes">
+            <li><strong>同期するもの</strong>: ワークスペース（名前・色・アイコン・使うセッション・自動クローズの上書き・保存タブの URL とタイトル・固定・タブグループ・並び順）、セッション（名前）、設定（この「同期する」自体を除く）。接続したブックマークフォルダは「フォルダのパス」で同期し、他の端末では同じパスのフォルダを探して接続します（Chrome のブックマーク同期でフォルダが届けば自動で接続されます。無ければ未接続のまま）</li>
+            <li><strong>同期しないもの</strong>: 退避した Cookie（ログイン状態）、閉じたタブの履歴、タブの favicon と最終アクセス時刻、最後に使っていたワークスペース</li>
+            <li><strong>容量</strong>: 同期ストレージは全体で 100 KB（1 項目 8 KB、512 項目）です。タブは URL とタイトル（100 文字まで）だけに縮め、圧縮して保存します。それでも収まらないときは、最後に開いた日時が古いワークスペースから順に<strong>タブだけ</strong>を同期から省きます（名前・色・セッションなどは必ず同期されます。省いたワークスペースは上に表示します）</li>
+            <li><strong>衝突</strong>: 同じワークスペースを 2 台で同時に変えたときは、更新時刻の新しい方が残ります。同じワークスペースを 2 台で同時に開いて使うと、最後にタブを操作した側の構成が保存されます（開いているウィンドウのタブは閉じたり増えたりしません）。片方で削除し、もう片方で変更した場合は、変更した方が残ります</li>
+            <li><strong>書き込み回数</strong>: Chrome の上限（120 回 / 分・1,800 回 / 時）に収めるため、変更から約 10 秒待ってまとめて書きます</li>
+          </ul>
+        </div>
       </section>
 
       <section class="sec" id="sec-backup" data-section="backup">

@@ -30,6 +30,9 @@ import {
 import {
   ensureAllWorkspaceTabs, scheduleWorkspaceTab, scheduleAllWorkspaceTabs, forgetWorkspaceTabWindow,
 } from './lib/wstab.js';
+import {
+  configureSync, scheduleSync, runSync, getSyncStatus, setSyncEnabled, clearSyncData, SYNC_PULL_DELAY_MS,
+} from './lib/sync.js';
 
 // ---- タブ変更 → 所属ワークスペースへのスナップショット（デバウンス） ----
 
@@ -142,7 +145,22 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (labelChanged) scheduleAllIndicators();
     // ワークスペースタブ: グループのタイトル・色の更新、設定の ON / OFF（OFF なら全ウィンドウで閉じる）
     if (labelChanged || workspaceTabEnabled(oldValue) !== workspaceTabEnabled(newValue)) scheduleAllWorkspaceTabs();
+    // 同期（issue #4）: ローカルの変化を少し待ってまとめて同期ストレージへ書く（書き込み回数の上限に収める）
+    if (newValue?.settings?.syncEnabled) scheduleSync();
   }
+  // 他の端末の書き込みが届いた。分割された項目が揃うのを少し待ってから取り込む。
+  // 自分の書き込みの通知も区別せず予約する（直後に届いた他の端末の変更を取りこぼさないため。内容が同じなら何も書かない）
+  if (area === 'sync') scheduleSync(SYNC_PULL_DELAY_MS);
+});
+
+// 同期でリモートの設定・ワークスペースを取り込んだ後: アラームとワークスペースタブ・ツールバー表示を今の設定に合わせる
+configureSync({
+  onApplied: async (state) => {
+    await configureAutoDiscard(state.settings);
+    await configureAutoClose(state);
+    refreshAllIndicators();
+    scheduleAllWorkspaceTabs({ prune: true });
+  },
 });
 
 // サービスワーカーの起動（再起動・再読み込み）時にも一度適用する。
@@ -167,6 +185,8 @@ chrome.runtime.onStartup.addListener(() => {
     // 対応付けが済んだので、割り当て済みのウィンドウにはワークスペースタブを置き（復元されたものは再利用）、
     // 対応付けられなかったウィンドウに復元された古いワークスペースタブは閉じる
     scheduleAllWorkspaceTabs({ prune: true });
+    // 起動中に他の端末が書いた分を取り込む（同期が OFF なら何もしない）
+    scheduleSync(SYNC_PULL_DELAY_MS);
   });
 });
 
@@ -187,6 +207,7 @@ chrome.runtime.onInstalled.addListener((details) => {
   }).finally(() => {
     refreshAllIndicators();
     scheduleAllWorkspaceTabs({ prune: true });
+    scheduleSync(SYNC_PULL_DELAY_MS);
   });
 });
 
@@ -347,6 +368,8 @@ const readOnly = {
   listClosedTabs: () => listClosedTabs(),
   // Cookie の分離の状態（権限・今の Cookie のセッション・各セッションの退避 Cookie の件数）
   getCookieStatus: async ({ live = true } = {}) => cookieStatus(await loadState(), { live }),
+  // 同期の状態（ON / OFF・最終同期・使用量・タブを省略したワークスペース・エラー）
+  getSyncStatus: () => getSyncStatus(),
 };
 
 const mutating = {
@@ -408,7 +431,10 @@ const mutating = {
   updateSettings: async ({ patch }) => {
     const state = await mutate((state) => {
       const prevAutoClose = state.settings.autoClose;
-      Object.assign(state.settings, patch);
+      // 同期の ON / OFF は setSyncEnabled（初回同期を伴う）で変える。端末ごとの設定なので更新時刻も動かさない
+      const { syncEnabled: _ignored, ...rest } = patch || {};
+      Object.assign(state.settings, rest);
+      state.settingsAt = Date.now();
       state.settings.autoDiscardMinutes = Math.max(0, Number(state.settings.autoDiscardMinutes) || 0);
       state.settings.workspaceTab = state.settings.workspaceTab !== false;
       // 一部の項目だけの patch も受け付け、不正な日数（NaN・負など）は今の値を保つ
@@ -429,7 +455,10 @@ const mutating = {
     if (!p) throw new Error('除外する URL を入力してください');
     const list = state.settings.autoCloseExclude;
     const added = !list.includes(p);
-    if (added) state.settings.autoCloseExclude = [...list, p];
+    if (added) {
+      state.settings.autoCloseExclude = [...list, p];
+      state.settingsAt = Date.now();
+    }
     return { added, pattern: p, patterns: state.settings.autoCloseExclude };
   }),
   // 自動クローズの除外 URL を 1 件削除（無ければ何もしない）
@@ -437,7 +466,9 @@ const mutating = {
     const p = normalizeExcludePattern(pattern);
     const list = state.settings.autoCloseExclude;
     state.settings.autoCloseExclude = list.filter((x) => x !== p);
-    return { removed: list.length !== state.settings.autoCloseExclude.length, patterns: state.settings.autoCloseExclude };
+    const removed = list.length !== state.settings.autoCloseExclude.length;
+    if (removed) state.settingsAt = Date.now();
+    return { removed, patterns: state.settings.autoCloseExclude };
   }),
   /**
    * Cookie の分離に必要な権限が許可された直後に呼ぶ（UI 側で permissions.request してから）。
@@ -449,8 +480,20 @@ const mutating = {
   },
   // 退避した Cookie をすべて削除（今 Chrome に入っている Cookie は消さない）
   clearCookieJars: () => clearCookieJars(),
+  // 同期（issue #4）: ON にすると初回同期（ローカルとリモートの和集合）を行う。OFF は止めるだけ（同期ストレージは残す）
+  setSyncEnabled: ({ enabled }) => setSyncEnabled(!!enabled),
+  // 今すぐ取り込み → 書き出し（同期が OFF なら何もしない）
+  syncNow: () => runSync(),
+  // 同期ストレージを空にして OFF にする（他の端末のローカルデータは消えない）
+  clearSyncData: () => clearSyncData(),
   importData: async ({ data }) => {
+    const prev = await loadState();
     const state = normalizeState(data);
+    // 同期の ON / OFF は端末ごとの設定なので、インポートしたファイルの値ではなく今の値を保つ
+    state.settings.syncEnabled = prev.settings.syncEnabled;
+    // インポートした内容を「最新」として扱う（同期で他の端末の設定・並び順より優先される）
+    state.settingsAt = Date.now();
+    state.orderAt = Date.now();
     await saveState(state);
     await configureAutoDiscard(state.settings);
     await configureAutoClose(state);

@@ -177,7 +177,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .badge.parked { border: 1px solid var(--border); color: var(--fg-sub); white-space: nowrap; }
 
 /* タブの選択と別のワークスペースへの移動（issue #33）: チェックボックスはマウスを乗せたとき・チェック中・1 件でも選んでいる間だけ出す */
-.entry input.check { visibility: hidden; margin: 0; flex: none; cursor: pointer; }
+.entry input.check { visibility: hidden; margin: 0; flex: none; cursor: pointer; width: 20px; height: 20px; accent-color: var(--accent); }
 .entry:hover input.check, .entry.checked input.check, .selecting .entry input.check { visibility: visible; }
 .entry.checked { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .sel-bar {

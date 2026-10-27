@@ -419,15 +419,22 @@ function renderList() {
   }));
 }
 
-/** check: { on, onToggle(e) } を渡すと行の先頭にチェックボックス（別のワークスペースへの移動用。issue #33） */
+/**
+ * check: { on, onToggle(e), selecting } を渡すと行の先頭にチェックボックス（別のワークスペースへの移動用。issue #33）。
+ * selecting（1 件でも選んでいる間）は、行のどこをクリックしてもタブを開かずにチェックを切り替える
+ */
 function entryRow({ url, title, sub, extra, active, discarded, check, onOpen, onClose, closeTitle = 'タブを閉じる' }) {
   return h('div', {
     class: `entry${active ? ' on' : ''}${discarded ? ' discarded' : ''}${check?.on ? ' checked' : ''}`,
     title: url || '',
-    onclick: () => onOpen && attempt(onOpen),
+    onclick: (e) => {
+      if (check?.selecting) check.onToggle(e);
+      else if (onOpen) attempt(onOpen);
+    },
   },
     check ? h('input', {
       type: 'checkbox', class: 'check', checked: !!check.on, title: '選択して別のワークスペースへ移動（Shift+クリックで範囲）',
+      // チェックボックス自身のクリックで切り替える（既定の動作で checked が変わった後に描き直すので preventDefault はしない）
       onclick: (e) => { e.stopPropagation(); check.onToggle(e); },
     }) : null,
     url ? fav(url) : null,
@@ -780,7 +787,7 @@ function renderTabs() {
         title: (t.pinned ? '📌 ' : '') + (t.title || t.url),
         sub: hostOf(t.url),
         active: !!t.active,
-        check: { on: checked.has(i), onToggle: (e) => toggleChecked(keys, i, e) },
+        check: { on: checked.has(i), selecting: checked.size > 0, onToggle: (e) => toggleChecked(keys, i, e) },
         onOpen: () => openSingle(t.url),
       }), { url: t.url, title: t.title }));
     });
@@ -832,7 +839,7 @@ function renderTabs() {
       extra: exclude,
       active: t.active,
       discarded: t.discarded,
-      check: { on: checked.has(t.id), onToggle: (e) => toggleChecked(keys, i, e) },
+      check: { on: checked.has(t.id), selecting: checked.size > 0, onToggle: (e) => toggleChecked(keys, i, e) },
       onOpen: () => focusTab(t),
       onClose: async () => { await chrome.tabs.remove(t.id); },
     }), t));

@@ -18,7 +18,7 @@
       <input id="search" type="search" placeholder="ワークスペース・ブックマーク・閲覧履歴を検索（/ でここにフォーカス）" autocomplete="off" autofocus>
       <div id="searchResults" hidden></div>
     </div>
-    <span class="muted small search-hint">↑↓ 選択 / Enter 開く / Shift+Enter ワークスペース→新しいウィンドウ・URL→このウィンドウ / Esc 検索を消す・パネルを閉じる / 1〜9/0 でワークスペース切替（Shift で新しいウィンドウ）</span>
+    <span class="muted small search-hint">↑↓ 選択 / Enter 開く / Shift+Enter ワークスペース→新しいウィンドウ・URL→このウィンドウ / Ctrl+Enter ワークスペース→今のタブを休止して切替 / Esc 検索を消す・パネルを閉じる / 1〜9/0 でワークスペース切替（Shift で新しいウィンドウ）</span>
   </div>
 
   <div class="board">
@@ -30,7 +30,7 @@
       <div id="list" class="col-body"></div>
       <div class="col-foot">
         <button id="options" type="button" title="設定・管理（ワークスペース / セッション / 閉じたタブ の管理と、表示 / メモリ / 自動クローズ / ブックマーク / ショートカット / バックアップ の設定）を開く">⚙ 設定・管理<span id="closedBadge" class="badge" hidden></span></button>
-        <button id="discard" type="button" title="このウィンドウの非アクティブなタブのメモリを解放（タブは残ります）">💤 休止</button>
+        <button id="discard" type="button" title="このウィンドウの非アクティブなタブのメモリを解放（タブは残り、次に開いたときに読み込み直します）">💤 メモリ解放</button>
         <button id="guide" type="button" title="使い方ページを開く">? 使い方</button>
       </div>
     </aside>
@@ -75,6 +75,7 @@
           </select>
         </label>
         <label class="check" id="createKeepRow"><input id="createKeep" type="checkbox" checked> このウィンドウで今開いているタブをこのワークスペースにする</label>
+        <label class="check" id="createParkRow" title="今のワークスペースのタブを閉じずに、折りたたんだグループ「⏸ …」として残す"><input id="createPark" type="checkbox"> 今のワークスペースのタブは閉じずに休止して残す</label>
         <div id="createHint" class="muted small"></div>
       </div>
       <div class="dlg-foot">

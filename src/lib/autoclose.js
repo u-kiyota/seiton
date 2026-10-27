@@ -9,6 +9,7 @@ import { addClosedTabs } from './history.js';
 import { getBindings } from './store.js';
 import { getInheritedAccess } from './access.js';
 import { isSwitching } from './workspace.js';
+import { getParked } from './parked.js';
 
 export const AUTO_CLOSE_ALARM = 'auto-close';
 const PERIOD_MINUTES = 15;
@@ -32,6 +33,8 @@ export async function runAutoClose(state, now = Date.now()) {
   const windows = await chrome.windows.getAll({ windowTypes: ['normal'], populate: true });
   // 切替で作り直したタブは、保存時の最終アクセス時刻を引き継いで判定する
   const inherited = await getInheritedAccess();
+  // 休止グループ（issue #35）のタブは、履歴にはそのワークスペースの名前で記録する（閉じる判定はウィンドウのワークスペースの設定に従う）
+  const parked = await getParked();
   let count = 0;
   for (const win of windows) {
     // 切替中のウィンドウはタブを閉じて開き直している最中なので触らない
@@ -44,7 +47,7 @@ export async function runAutoClose(state, now = Date.now()) {
     // 閉じる直前に履歴へ記録する（管理パネルの「閉じたタブ」から開き直せるように）。
     // 記録に失敗しても自動クローズ自体は止めない
     try {
-      await addClosedTabs(targets.map((tab) => closedTabEntry(tab, ws, now)));
+      await addClosedTabs(targets.map((tab) => closedTabEntry(tab, state.workspaces[parked[tab.groupId]?.workspaceId] || ws, now)));
     } catch (e) {
       console.warn('[seiton] 閉じたタブの履歴を記録できませんでした', e);
     }

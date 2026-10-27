@@ -169,3 +169,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .ws.drop-after { box-shadow: 0 2px 0 0 var(--accent); }
 .ws-head.dragging { opacity: .5; }
 .ws-head { cursor: pointer; }
+
+/* 休止（issue #35）: 行の操作ボタンはマウスを乗せたとき・選択中だけ出す。休止中のバッジは枠だけ */
+.ws-head button.act { visibility: hidden; flex: none; padding: 1px 5px; }
+.ws-head:hover button.act, .ws.sel > .ws-head button.act { visibility: visible; }
+.badge.parked { border: 1px solid var(--border); color: var(--fg-sub); white-space: nowrap; }

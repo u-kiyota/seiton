@@ -2,7 +2,7 @@ import {
   tabUrl, normalizeUrlForMatch, isManagerUrl, isWorkspaceTabUrl, matchesQuery,
   TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl, workspaceHotkey, hotkeyToIndex,
   autoCloseDaysFrom, autoCloseDuration, formatAutoCloseDuration, AUTO_CLOSE_UNIT_LABELS,
-  autoCloseExcludeMatch, excludePatternsForUrl,
+  autoCloseExcludeMatch, excludePatternsForUrl, switchModeFromKeys,
 } from '../lib/core.js';
 import { iconPicker, makeWorkspaceDraggable, makeWorkspaceDropTarget } from './manage.js';
 import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt, confirmButton } from './api.js';
@@ -14,7 +14,8 @@ const COLORS = Object.keys(COLOR_HEX);
 let windowId;
 // パネル自身のポップアップウィンドウ。タブとして開かれた場合（旧版の名残など）は null で、自動では閉じない
 let selfWindowId = null;
-let data = { state: null, bindings: {} };
+// parked: 休止中のワークスペース（issue #35）→ { windowId, groupId }
+let data = { state: null, bindings: {}, parked: {} };
 // Cookie の分離の状態（issue #12）。✎ のヒントに使う。live（今の Cookie の件数）は重いので取らない
 let cookieInfo = null;
 let selectedId = null;
@@ -80,6 +81,11 @@ function windowOf(wsId) {
   return e ? Number(e[0]) : null;
 }
 
+/** 休止中（issue #35: タブを閉じずに折りたたんだグループに残している）なら { windowId, groupId }、そうでなければ null */
+function parkedOf(wsId) {
+  return data.parked?.[wsId] || null;
+}
+
 function sessionName(id) {
   return data.state.sessions[id]?.name || '';
 }
@@ -112,13 +118,31 @@ function selectWorkspace(id) {
   attempt(refreshDetail);
 }
 
-/** 対象ウィンドウをそのワークスペースに切り替える（別ウィンドウで開いていればそちらへ）。完了後にパネルを閉じる */
-function switchHere(id) {
+/**
+ * 対象ウィンドウをそのワークスペースに切り替える（別ウィンドウで開いていればそちらへ。休止中なら再開）。完了後にパネルを閉じる。
+ * park: 今のワークスペースのタブを閉じずに休止（折りたたんだグループ）にして残す（issue #35）
+ */
+function switchHere(id, { park = false } = {}) {
   if (data.bindings[windowId] === id) return undefined;
   return attempt(() => moveAway(async () => {
-    const res = await call('switchWorkspace', { windowId, workspaceId: id });
+    const res = await call('switchWorkspace', { windowId, workspaceId: id, park });
     return res?.windowId ?? windowId;
   }));
+}
+
+/** 切替方法（switchModeFromKeys の戻り値）に応じて開く: window = 新しいウィンドウ / park = 休止して切替 / switch = 切替 */
+function openWorkspaceBy(id, mode) {
+  if (mode === 'window') return openNewWindow(id);
+  selectWorkspace(id);
+  return switchHere(id, { park: mode === 'park' });
+}
+
+/** 休止を終了: 休止グループのタブを閉じる（閉じる直前の内容は保存される） */
+function endParked(id) {
+  return attempt(async () => {
+    const r = await call('closeParked', { workspaceId: id });
+    toast(`休止を終了し、${r.closed} 個のタブを閉じました`);
+  });
 }
 
 /** 新しいウィンドウで開く（既に開いていればそのウィンドウへ）。完了後にパネルを閉じる */
@@ -174,22 +198,36 @@ function renderDetailHead() {
   if (ws) {
     const here = bindings[windowId] === ws.id;
     const openIn = windowOf(ws.id);
+    const parkedIn = parkedOf(ws.id);
     parts.push(h('div', { class: 'row' },
       wsIcon(ws, 'lg'),
       h('span', { class: 'grow ellipsis' }, h('b', {}, ws.name)),
       h('span', { class: 'ws-session', title: '使うセッション' }, sessionName(ws.sessionId)),
       here ? h('span', { class: 'badge here' }, 'このウィンドウ')
         : openIn != null ? h('span', { class: 'badge' }, '別ウィンドウ')
-          : h('span', { class: 'badge' }, '未オープン'),
+          : parkedIn ? h('span', { class: 'badge parked', title: '休止中: タブは閉じずに折りたたんだグループ「⏸ …」に残っています' },
+            parkedIn.windowId === windowId ? 'このウィンドウで休止中' : '別ウィンドウで休止中')
+            : h('span', { class: 'badge' }, '未オープン'),
       here ? null : h('button', {
         class: 'primary', type: 'button',
-        title: openIn != null ? '開いているウィンドウへ移動' : 'このウィンドウのタブを入れ替えて開く',
+        title: openIn != null ? '開いているウィンドウへ移動'
+          : parkedIn ? '休止グループを解いて再開する（今のワークスペースのタブは閉じて保存）'
+            : 'このウィンドウのタブを入れ替えて開く',
         onclick: () => switchHere(ws.id),
-      }, openIn != null ? 'そのウィンドウへ' : 'このウィンドウで開く'),
+      }, openIn != null ? 'そのウィンドウへ' : parkedIn ? '再開' : 'このウィンドウで開く'),
+      here || openIn != null ? null : h('button', {
+        type: 'button',
+        title: '今のワークスペースのタブを閉じずに休止（折りたたんだグループ）にして残し、このワークスペースを開く（検索ボックスでは Ctrl+Enter）',
+        onclick: () => switchHere(ws.id, { park: true }),
+      }, '⏸ 休止して開く'),
       h('button', {
         class: 'icon', type: 'button', title: '新しいウィンドウで開く',
         onclick: () => openNewWindow(ws.id),
       }, '⧉'),
+      parkedIn ? h('button', {
+        type: 'button', title: '休止を終了: 休止グループのタブを閉じる（閉じる直前の内容は保存されます）',
+        onclick: () => endParked(ws.id),
+      }, '休止を終了') : null,
       h('button', {
         class: 'icon', type: 'button', title: '編集',
         onclick: () => {
@@ -321,9 +359,13 @@ function renderList() {
     const ws = state.workspaces[id];
     const openIn = windowOf(id);
     const here = bindings[windowId] === id;
+    const parkedIn = parkedOf(id);
     const head = h('div', {
       class: 'ws-head row',
-      title: here ? 'このウィンドウで開いています' : openIn != null ? 'クリックで開いているウィンドウへ移動' : 'クリックでこのウィンドウに開く',
+      title: here ? 'このウィンドウで開いています'
+        : openIn != null ? 'クリックで開いているウィンドウへ移動'
+          : parkedIn ? 'クリックで休止を解いて再開（別ウィンドウで休止中ならこのウィンドウへ移す）'
+            : 'クリックでこのウィンドウに開く',
       onclick: () => onRowClick(id),
     },
       workspaceHotkey(index) ? h('span', { class: 'badge hotkey', title: `${workspaceHotkey(index)} キーで切替（Shift で新しいウィンドウ）` }, workspaceHotkey(index)) : null,
@@ -332,8 +374,23 @@ function renderList() {
       showSession ? h('span', { class: 'ws-session', title: `使うセッション: ${sessionName(ws.sessionId)}` }, sessionName(ws.sessionId)) : null,
       ws.bookmarkFolderId ? h('span', { class: 'muted small', title: 'ブックマークフォルダ接続済み' }, '★') : null,
       here ? h('span', { class: 'badge here', title: 'このウィンドウ' }, 'ここ')
-        : openIn != null ? h('span', { class: 'badge', title: '別ウィンドウで開いている' }, '別') : null,
+        : openIn != null ? h('span', { class: 'badge', title: '別ウィンドウで開いている' }, '別')
+          : parkedIn ? h('span', {
+            class: 'badge parked',
+            title: parkedIn.windowId === windowId ? 'このウィンドウで休止中（タブは折りたたんだグループに残っています）' : '別ウィンドウで休止中',
+          }, parkedIn.windowId === windowId ? '休止' : '別・休止') : null,
       h('span', { class: 'muted small', title: '保存されているタブ数' }, `${ws.tabs.length}`),
+      // 行の操作（マウスを乗せると出る。issue #35）: ⏸ 今のタブを休止して切替 / ⧉ 新しいウィンドウで開く
+      here || openIn != null ? null : h('button', {
+        class: 'icon act', type: 'button',
+        title: '今のワークスペースのタブを閉じずに休止して、このワークスペースに切り替える（検索ボックスでは Ctrl+Enter）',
+        onclick: (e) => { e.stopPropagation(); selectWorkspace(id); switchHere(id, { park: true }); },
+      }, '⏸'),
+      h('button', {
+        class: 'icon act', type: 'button',
+        title: openIn != null ? '開いているウィンドウへ移動' : '新しいウィンドウで開く（検索ボックスでは Shift+Enter）',
+        onclick: (e) => { e.stopPropagation(); openNewWindow(id); },
+      }, '⧉'),
     );
     makeTabDropTarget(head, () => data.state?.workspaces[id] || null);
     // 行をドラッグして並び替え（issue #25）。落とす位置の線は行の外枠（.ws）に出す
@@ -477,7 +534,7 @@ function renderBookmarks() {
   $('bmTitle').textContent = `ブックマーク（${bookmarks.items.length}）`;
   const openWin = windowOf(ws.id);
   const lead = openWin == null
-    ? 'このワークスペースは開いていません。行を開くと、この 1 件だけを現在のウィンドウで開きます。'
+    ? (parkedOf(ws.id) ? '休止中です。' : 'このワークスペースは開いていません。') + '行を開くと、この 1 件だけを現在のウィンドウで開きます。'
     : openWin !== windowId
       ? '別ウィンドウで開いています。行を開くとそのウィンドウでこの 1 件を開きます。'
       : '';
@@ -560,20 +617,23 @@ function renderTabs() {
     .filter((t) => !isManagerUrl(tabUrl(t)) && !isWorkspaceTabUrl(tabUrl(t)))
     .sort((a, b) => a.index - b.index);
   const groupById = Object.fromEntries((view.groups || []).map((g) => [g.id, g]));
-  $('tabTitle').textContent = `開いているタブ（${tabs.length}）`;
+  $('tabTitle').textContent = `${view.parked ? '休止中のタブ' : '開いているタブ'}（${tabs.length}）`;
   if (!tabs.length) {
     body.replaceChildren(h('div', { class: 'empty' }, '開いているタブはありません。'));
     return;
   }
   const nodes = [];
   if (!ws) nodes.push(h('div', { class: 'hint' }, 'このウィンドウで開いているタブです。'));
-  else if (view.windowId !== windowId) nodes.push(h('div', { class: 'hint' }, '別ウィンドウで開いています。行を開くとそのタブへ移動します。'));
+  else if (view.parked) {
+    nodes.push(h('div', { class: 'hint' }, `${view.windowId === windowId ? 'このウィンドウ' : '別ウィンドウ'}で休止中（折りたたんだグループ「⏸ …」）のタブです。行を開くとそのタブへ移動します（ワークスペースは切り替わりません）。`));
+  } else if (view.windowId !== windowId) nodes.push(h('div', { class: 'hint' }, '別ウィンドウで開いています。行を開くとそのタブへ移動します。'));
   let lastGroup;
   for (const t of tabs) {
     const gid = t.groupId ?? -1;
     if (gid !== lastGroup) {
       lastGroup = gid;
-      if (gid !== -1) nodes.push(h('div', { class: 'group-label' }, groupById[gid]?.title || 'グループ'));
+      // 休止中は全部が休止グループなので見出しは出さない
+      if (gid !== -1 && !view.parked) nodes.push(h('div', { class: 'group-label' }, groupById[gid]?.title || 'グループ'));
     }
     const url = tabUrl(t);
     // 自動クローズの除外（issue #20）: 除外中ならバッジ（クリックで解除）、そうでなければ追加ボタン（行にマウスを乗せると出る）
@@ -590,7 +650,7 @@ function renderTabs() {
     nodes.push(makeTabDraggable(entryRow({
       url,
       title: (t.pinned ? '📌 ' : '') + (t.title || url || '新しいタブ'),
-      sub: t.discarded ? '休止中' : hostOf(url),
+      sub: t.discarded ? 'メモリ解放済み' : hostOf(url),
       extra: exclude,
       active: t.active,
       discarded: t.discarded,
@@ -640,6 +700,14 @@ function openCreateDialog({ keepTabs = false } = {}) {
   const unassigned = !bindings[windowId];
   $('createKeepRow').hidden = !unassigned;
   $('createKeep').checked = unassigned && keepTabs;
+  // 休止して切替（issue #35）: 割り当て済みのウィンドウでだけ選べる。セッションが変わる（Cookie を入れ替える）ときは選べない
+  $('createPark').checked = false;
+  const updatePark = () => {
+    const swap = !!cookieInfo?.permitted && current && $('createSession').value !== current.sessionId;
+    $('createParkRow').hidden = unassigned || swap;
+  };
+  updatePark();
+  $('createSession').onchange = updatePark;
   $('createHint').textContent = unassigned
     ? ''
     : '作成後、このウィンドウを新しいワークスペースに切り替えます（今のタブは現在のワークスペースに保存されます）。';
@@ -661,11 +729,12 @@ $('createForm').addEventListener('submit', (e) => {
   const folderOpts = folderChoice === 'new' ? { createFolder: true } : { bookmarkFolderId: folderChoice || null };
   const icon = createIcon;
   const keep = !data.bindings[windowId] && $('createKeep').checked;
+  const park = !keep && !$('createParkRow').hidden && $('createPark').checked;
   $('createDialog').close();
   const create = async () => {
     const { workspaceId, cookieSession } = await call('createWorkspace', keep
       ? { name, sessionId, icon, ...folderOpts, fromWindowId: windowId }
-      : { name, sessionId, icon, ...folderOpts, switchTo: true, windowId });
+      : { name, sessionId, icon, ...folderOpts, switchTo: true, windowId, park });
     selectedId = workspaceId;
     editingId = null;
     folders = null;
@@ -768,16 +837,21 @@ async function refreshDetail() {
   const seq = ++detailSeq;
   const ws = data.state.workspaces[selectedId];
   const openWin = ws ? windowOf(ws.id) : null;
+  const parkedIn = ws ? parkedOf(ws.id) : null;
   let tabsView;
-  if (ws && openWin == null) {
+  if (ws && openWin == null && !parkedIn) {
     tabsView = { mode: 'saved', tabs: ws.tabs, groups: ws.groups || {} };
   } else {
-    const wid = openWin ?? windowId;
+    // 休止中（issue #35）なら、そのウィンドウの休止グループに入っているタブだけを生で見せる
+    const wid = openWin ?? parkedIn?.windowId ?? windowId;
     const [tabs, groups] = await Promise.all([
       chrome.tabs.query({ windowId: wid }),
       chrome.tabGroups.query({ windowId: wid }).catch(() => []),
     ]);
-    tabsView = { mode: 'live', windowId: wid, tabs, groups };
+    tabsView = {
+      mode: 'live', windowId: wid, groups, parked: !!parkedIn,
+      tabs: parkedIn ? tabs.filter((t) => t.groupId === parkedIn.groupId) : tabs,
+    };
   }
   let bookmarks = null;
   if (ws?.bookmarkFolderId) {
@@ -806,7 +880,7 @@ async function loadFolders() {
 
 $('discard').addEventListener('click', () => attempt(async () => {
   const n = await call('discardInactive', { windowId });
-  toast(`${n} 個のタブを休止しました`);
+  toast(`${n} 個のタブのメモリを解放しました`);
 }));
 /**
  * 設定・管理画面（ワークスペース / セッション / 閉じたタブ / 各設定）を対象ウィンドウのタブで開く。
@@ -833,7 +907,7 @@ $('guide').addEventListener('click', () => attempt(() => moveAway(async () => {
 })));
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if ((area === 'local' && changes.state) || (area === 'session' && changes.bindings)) attempt(load);
+  if ((area === 'local' && changes.state) || (area === 'session' && (changes.bindings || changes.parked))) attempt(load);
   if (area === 'local' && changes.closedTabs) {
     const v = changes.closedTabs.newValue;
     updateClosedCount(Array.isArray(v) ? v.length : 0);
@@ -851,7 +925,7 @@ for (const ev of ['onCreated', 'onRemoved', 'onUpdated', 'onMoved', 'onActivated
 
 let allBm = null; // listWorkspaceBookmarks のキャッシュ（ブックマーク変更・接続変更で破棄）
 let allBmKey = '';
-let searchItems = []; // { el, run(shift) }
+let searchItems = []; // { el, run(mode) }  mode: switchModeFromKeys の戻り値（switch / window / park）
 let searchSel = 0;
 let searchSeq = 0;
 let searchTimer = 0;
@@ -897,7 +971,7 @@ function searchEntry({ icon, url, title, sub, time, run }) {
     time ? h('span', { class: 'time' }, time) : null,
   );
   const entry = { el, run };
-  el.addEventListener('click', (e) => entry.run(e.shiftKey));
+  el.addEventListener('click', (e) => entry.run(switchModeFromKeys(e)));
   el.addEventListener('mousemove', () => searchSelect(searchItems.indexOf(entry)));
   return entry;
 }
@@ -926,14 +1000,16 @@ async function runSearch() {
   section(`ワークスペース（${wsList.length}）`);
   for (const w of wsList) {
     const here = data.bindings[windowId] === w.id;
+    const parkedIn = parkedOf(w.id);
     push(searchEntry({
       icon: wsIcon(w),
       title: w.name,
-      sub: here ? 'このウィンドウ' : `${sessionName(w.sessionId)} · ${w.tabs.length} タブ`,
-      run: async (shift) => {
+      sub: here ? 'このウィンドウ'
+        : `${parkedIn ? (parkedIn.windowId === windowId ? '休止中 · ' : '別ウィンドウで休止中 · ') : ''}${sessionName(w.sessionId)} · ${w.tabs.length} タブ`,
+      // Enter = 切替 / Shift+Enter = 新しいウィンドウ / Ctrl+Enter = 今のタブを休止して切替
+      run: async (mode) => {
         clearSearch();
-        if (shift) await openNewWindow(w.id);
-        else { selectWorkspace(w.id); await switchHere(w.id); }
+        await openWorkspaceBy(w.id, mode);
       },
     }));
   }
@@ -955,7 +1031,7 @@ async function runSearch() {
       url: b.url,
       title: b.title,
       sub: [wsName, b.path].filter(Boolean).join(' / ') || hostOf(b.url),
-      run: (shift) => attempt(async () => { await openUrlIn(b.url, shift ? null : b.workspaceId); clearSearch(); }),
+      run: (mode) => attempt(async () => { await openUrlIn(b.url, mode === 'window' ? null : b.workspaceId); clearSearch(); }),
     }));
   }
 
@@ -983,7 +1059,7 @@ async function runSearch() {
       title: hItem.title || hItem.url,
       sub: hostOf(hItem.url),
       time: relTime(hItem.lastVisitTime),
-      run: (shift) => attempt(async () => { await openUrlIn(hItem.url, shift ? null : selectedId); clearSearch(); }),
+      run: (mode) => attempt(async () => { await openUrlIn(hItem.url, mode === 'window' ? null : selectedId); clearSearch(); }),
     }));
   }
   if (!list.length) out.push(h('div', { class: 'empty' }, '一致するものがありません'));
@@ -1010,7 +1086,7 @@ $('search').addEventListener('keydown', (e) => {
   if (e.isComposing) return;
   if (e.key === 'ArrowDown') { e.preventDefault(); searchSelect(searchSel + 1); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); searchSelect(searchSel - 1); }
-  else if (e.key === 'Enter') { e.preventDefault(); searchItems[searchSel]?.run(e.shiftKey); }
+  else if (e.key === 'Enter') { e.preventDefault(); searchItems[searchSel]?.run(switchModeFromKeys(e)); }
   else if (e.key === 'Escape' && $('search').value) {
     // 入力があれば消すだけ。空のときは下の Esc ハンドラでパネルを閉じる
     e.preventDefault();

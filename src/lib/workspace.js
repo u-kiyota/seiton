@@ -3,12 +3,16 @@
 import {
   uid, COLORS, normalizeIcon, snapshotTabs, tabUrl, isBlankUrl, isRestorableUrl, isWorkspaceTabUrl,
   matchWindowsToWorkspaces, missingTabs, planRestore, workspacesUsingSession, normalizeAutoCloseOverride, moveInOrder,
+  parkedTabsForSnapshot,
 } from './core.js';
 import { loadState, saveState, mutate, getBindings, setBinding, clearBindings, windowForWorkspace } from './store.js';
 import { enqueueDiscard, cancelDiscard } from './memory.js';
 import { rememberInheritedAccess, getInheritedAccess } from './access.js';
 import { createFolderForWorkspace, renameManagedFolder } from './bookmarks.js';
 import { ensureCookieSession, needsCookieSwap, getCookieSessionId, isolationActive, swapCookies, forgetSessionJar } from './cookies.js';
+import {
+  parkedGroupsInWindow, parkedLocation, parkTabs, unparkGroup, closeParkedGroup, recoverParkedGroups, pruneParked,
+} from './parked.js';
 
 // 自分でタブを作成・削除している最中のウィンドウ。この間のスナップショットは抑止する
 const switchingWindows = new Set();
@@ -35,12 +39,25 @@ async function readWindow(windowId) {
   return { tabs, groupsById };
 }
 
-/** ウィンドウの現在のタブを、バインドされたワークスペースに保存する */
+/** 変化があればワークスペースの保存タブを置き換える。戻り値: 変えたか */
+function applySnapshot(ws, snap) {
+  // 変化が無ければ書き込まない（storage.onChanged → UI 再描画の連鎖を防ぐ）
+  if (JSON.stringify(snap.tabs) === JSON.stringify(ws.tabs) && JSON.stringify(snap.groups) === JSON.stringify(ws.groups)) return false;
+  ws.tabs = snap.tabs;
+  ws.groups = snap.groups;
+  ws.updatedAt = Date.now();
+  return true;
+}
+
+/**
+ * ウィンドウの現在のタブを、バインドされたワークスペースに保存する。
+ * 休止グループ（issue #35）のタブは、バインドされたワークスペースではなく休止中のそれぞれのワークスペースに保存する
+ * （固定・元のグループ・前面は休止前の状態で）。未割り当てのウィンドウでも休止グループがあればそれは保存する
+ */
 export async function snapshotWindow(windowId) {
   if (switchingWindows.has(windowId)) return;
   const bindings = await getBindings();
   const wsId = bindings[windowId];
-  if (!wsId) return;
   let data;
   try {
     data = await readWindow(windowId);
@@ -48,19 +65,29 @@ export async function snapshotWindow(windowId) {
     return; // ウィンドウが既に閉じられている
   }
   if (!data.tabs.length) return; // 閉じる途中のウィンドウで空保存しない
+  const parked = await parkedGroupsInWindow(windowId, data.groupsById);
+  if (!wsId && !parked.length) return;
   const state = await loadState();
+  const inherited = await getInheritedAccess();
+  let changed = false;
+  const parkedIds = new Set();
+  for (const { groupId, record } of parked) {
+    const tabs = data.tabs.filter((t) => t.groupId === groupId);
+    for (const t of tabs) parkedIds.add(t.id);
+    const target = state.workspaces[record.workspaceId];
+    if (!target || !tabs.length) continue;
+    const view = parkedTabsForSnapshot(tabs, record);
+    const snap = snapshotTabs(view.tabs, view.groupsById, inherited);
+    if (snap.tabs.length && applySnapshot(target, snap)) changed = true;
+  }
   const ws = state.workspaces[wsId];
-  if (!ws) return;
-  const snap = snapshotTabs(data.tabs, data.groupsById, await getInheritedAccess());
-  // 保存できるタブが 1 枚も無い（ワークスペースタブなど拡張ページだけが残った）ときは上書きしない。
-  // ワークスペースタブがあると、タブを 1 枚ずつ閉じていってもウィンドウが閉じず isWindowClosing にならないため
-  if (!snap.tabs.length) return;
-  // 変化が無ければ書き込まない（storage.onChanged → UI 再描画の連鎖を防ぐ）
-  if (JSON.stringify(snap.tabs) === JSON.stringify(ws.tabs) && JSON.stringify(snap.groups) === JSON.stringify(ws.groups)) return;
-  ws.tabs = snap.tabs;
-  ws.groups = snap.groups;
-  ws.updatedAt = Date.now();
-  await saveState(state);
+  if (ws) {
+    const snap = snapshotTabs(data.tabs.filter((t) => !parkedIds.has(t.id)), data.groupsById, inherited);
+    // 保存できるタブが 1 枚も無い（ワークスペースタブなど拡張ページだけが残った）ときは上書きしない。
+    // ワークスペースタブがあると、タブを 1 枚ずつ閉じていってもウィンドウが閉じず isWindowClosing にならないため
+    if (snap.tabs.length && applySnapshot(ws, snap)) changed = true;
+  }
+  if (changed) await saveState(state);
 }
 
 /** 復元中、新しいタブが前面を奪ってもアンカーへすぐ戻す */
@@ -93,6 +120,7 @@ async function restoreTabs(windowId, ws, settings, anchorId = null) {
   }
 
   const groupMembers = {};
+  const toDiscard = [];
   let activeTabId = null;
   let lastId = null;
   for (let i = 0; i < plan.tabs.length; i++) {
@@ -104,8 +132,9 @@ async function restoreTabs(windowId, ws, settings, anchorId = null) {
       if (t.groupKey && !t.pinned) (groupMembers[t.groupKey] ||= []).push(tab.id);
       // 前面にしないタブは、保存時の最終アクセス時刻を引き継ぐ（自動クローズの判定用）
       if (i !== plan.activeIndex) await rememberInheritedAccess(tab.id, t.lastAccessed);
-      // 前面にしないタブは URL 確定後に休止する。確定前はキューに残る
-      if (settings.lazyRestore && i !== plan.activeIndex) await enqueueDiscard([tab.id]);
+      // 前面にしないタブは URL 確定後に discard する（確定前はキューに残る）。
+      // discard するとタブの ID が変わるので、グループに入れ終えてからキューに積む（読み込みの速いページが先に discard されてグループ化に失敗しないように）
+      if (settings.lazyRestore && i !== plan.activeIndex) toDiscard.push(tab.id);
     } catch (e) {
       console.warn('[workspace] failed to restore tab', t.url, e);
     }
@@ -123,6 +152,7 @@ async function restoreTabs(windowId, ws, settings, anchorId = null) {
       console.warn('[workspace] failed to restore group', e);
     }
   }
+  if (toDiscard.length) await enqueueDiscard(toDiscard);
   await holdAnchor(windowId, anchorId);
 
   let created = lastId != null;
@@ -153,9 +183,12 @@ function rememberOpened(state, windowWsId) {
 
 /**
  * windowId のウィンドウを targetId のワークスペースに切り替える。
- * 現在のタブは元のワークスペースに保存して閉じ、対象ワークスペースのタブを開く。
+ * 既定（park: false）は現在のタブを元のワークスペースに保存して閉じ、対象ワークスペースのタブを開く。
+ * park: true（休止。issue #35）は現在のタブを閉じずに、折りたたんだグループ「⏸ 絵文字 名前」にまとめて同じウィンドウに残す。
+ * 切替先が休止中なら（このウィンドウでも別ウィンドウでも）そのグループを解いて再開する（別ウィンドウならグループごとこのウィンドウへ移す）。
+ * セッションが変わる（Cookie を入れ替える）切替では休止できず、このウィンドウの休止グループも閉じる（別セッションのページを生かしたままにできないため）
  */
-export async function switchWorkspace(windowId, targetId) {
+export async function switchWorkspace(windowId, targetId, { park = false } = {}) {
   const state = await loadState();
   if (!state.workspaces[targetId]) throw new Error('ワークスペースが見つかりません');
   // 管理パネルのポップアップなど、通常ウィンドウ以外をワークスペースにしない
@@ -174,6 +207,9 @@ export async function switchWorkspace(windowId, targetId) {
     }
   }
 
+  const swap = await needsCookieSwap(state, state.workspaces[targetId].sessionId);
+  if (park && swap) throw new Error('セッションが変わる切替では休止できません（Cookie を入れ替えるため、今のタブを残せません）');
+
   // 未割り当てウィンドウに中身のあるタブがある場合は、失わないよう自動で新しいワークスペースとして保存する
   if (!bindings[windowId]) {
     const current = await chrome.tabs.query({ windowId });
@@ -188,28 +224,63 @@ export async function switchWorkspace(windowId, targetId) {
   await snapshotWindow(windowId);
   switchingWindows.add(windowId);
   let cookieSession = null;
+  let parked = false;
+  let resumed = false;
   try {
-    const current = await chrome.tabs.query({ windowId });
-    // ワークスペースタブは閉じずに残す（切替後にグループのタイトル / 色だけが新しいワークスペースのものになる）
-    const oldTabs = current.filter((t) => !isWorkspaceTabUrl(tabUrl(t)));
+    const { tabs: current, groupsById } = await readWindow(windowId);
+    const parkedHere = await parkedGroupsInWindow(windowId, groupsById);
+    const parkedGroupIds = new Set(parkedHere.map((p) => p.groupId));
+    // 今のワークスペースのタブ。ワークスペースタブは閉じずに残す（切替後にグループのタイトル / 色だけが新しいワークスペースのものになる）。
+    // 休止グループ（他のワークスペースのタブ）も触らない
+    const oldTabs = current.filter((t) => !isWorkspaceTabUrl(tabUrl(t)) && !parkedGroupIds.has(t.groupId));
     const oldIds = oldTabs.map((t) => t.id);
-    // アンカーは今前面のタブ（ワークスペースタブのページから切り替えたならそれ）。前面が無ければ普通のタブを優先する
-    // （折りたたんだワークスペースタブを前面に固定するとグループが開いてしまうため）
-    const anchorId = current.find((t) => t.active)?.id ?? oldTabs[0]?.id ?? current[0]?.id ?? null;
     const fresh = await loadState();
     const target = fresh.workspaces[targetId];
-    if (await needsCookieSwap(fresh, target.sessionId)) {
+    const currentWs = fresh.workspaces[bindings[windowId]] || null;
+    const parkedAt = await parkedLocation(targetId);
+
+    // 切替先を開く: 休止中なら（Cookie を入れ替えない限り）グループを解いて再開、そうでなければ保存した URL から開く。
+    // 戻り値: 前面にするタブができたか
+    const openTarget = async (anchorId) => {
+      if (parkedAt && !swap) {
+        if (parkedAt.windowId !== windowId) await chrome.tabGroups.move(parkedAt.groupId, { windowId, index: -1 });
+        const { activeTabId } = await unparkGroup(parkedAt.groupId, parkedAt.record);
+        resumed = activeTabId != null;
+        if (resumed) await chrome.tabs.update(activeTabId, { active: true }).catch(() => {});
+        return resumed;
+      }
+      const { created } = await restoreTabs(windowId, target, fresh.settings, anchorId);
+      return created;
+    };
+
+    if (swap) {
       // セッションが変わるとき（Cookie の分離が ON）: 前のセッションのページが Cookie を書き足して切替先に混ざらないよう、
-      // 古いタブを先に閉じてから Cookie を入れ替え、それから切替先のタブを開く。ウィンドウは空白タブで保つ
+      // 古いタブ（このウィンドウの休止グループも）を先に閉じてから Cookie を入れ替え、それから切替先のタブを開く。ウィンドウは空白タブで保つ。
+      // 切替先が別ウィンドウで休止中でも、同じ理由でそのグループは閉じて URL から開き直す
       const blank = await chrome.tabs.create({ windowId, url: 'about:blank', active: true });
       if (oldIds.length) await chrome.tabs.remove(oldIds).catch(() => {});
+      for (const p of parkedHere) await closeParkedGroup(p.groupId);
+      if (parkedAt && !parkedGroupIds.has(parkedAt.groupId)) await closeParkedGroup(parkedAt.groupId);
       cookieSession = await ensureCookieSession(fresh, target.sessionId);
-      const { created } = await restoreTabs(windowId, target, fresh.settings, blank.id);
+      const created = await openTarget(blank.id);
       if (!created) await chrome.tabs.create({ windowId, active: true });
       await chrome.tabs.remove(blank.id).catch(() => {});
+    } else if (park) {
+      // 休止: 前面のタブを含むグループは折りたためないので、先に空白タブを前面に置いてからグループにする
+      const blank = await chrome.tabs.create({ windowId, url: 'about:blank', active: true });
+      const groupId = currentWs && oldTabs.length ? await parkTabs(windowId, currentWs, oldTabs, groupsById) : null;
+      parked = groupId != null;
+      const created = await openTarget(blank.id);
+      if (!created) await chrome.tabs.create({ windowId, active: true });
+      // 休止する中身が無い（空タブだけ）・グループにできないときは従来どおり閉じる
+      if (!parked && oldIds.length) await chrome.tabs.remove(oldIds).catch(() => {});
+      await chrome.tabs.remove(blank.id).catch(() => {});
     } else {
-      // 先に新しいタブを作り、最後に古いタブを消す（最後のタブを消すとウィンドウが閉じるため）
-      const { created } = await restoreTabs(windowId, target, fresh.settings, anchorId);
+      // 先に新しいタブを作り、最後に古いタブを消す（最後のタブを消すとウィンドウが閉じるため）。
+      // アンカーは今前面のタブ（ワークスペースタブのページから切り替えたならそれ）。前面が無ければ普通のタブを優先する
+      // （折りたたんだワークスペースタブを前面に固定するとグループが開いてしまうため）
+      const anchorId = current.find((t) => t.active)?.id ?? oldTabs[0]?.id ?? current[0]?.id ?? null;
+      const created = await openTarget(anchorId);
       // 空のワークスペースでは、閉じる前に新しいタブを 1 枚足す
       if (!created) await chrome.tabs.create({ windowId, active: true });
       if (oldIds.length) await chrome.tabs.remove(oldIds).catch(() => {});
@@ -221,10 +292,26 @@ export async function switchWorkspace(windowId, targetId) {
     switchingWindows.delete(windowId);
   }
   await snapshotWindow(windowId);
-  return { windowId, cookieSession };
+  return { windowId, cookieSession, parked, resumed };
 }
 
-/** 新しいウィンドウでワークスペースを開く */
+/** 休止中のワークスペースのタブを閉じる（閉じる直前の内容を保存してから）。戻り値: 閉じた枚数 */
+export async function closeParked(workspaceId) {
+  const at = await parkedLocation(workspaceId);
+  if (!at) return { closed: 0 };
+  await snapshotWindow(at.windowId);
+  switchingWindows.add(at.windowId);
+  try {
+    return { closed: await closeParkedGroup(at.groupId) };
+  } finally {
+    switchingWindows.delete(at.windowId);
+  }
+}
+
+/**
+ * 新しいウィンドウでワークスペースを開く。休止中（issue #35）なら、そのグループごと新しいウィンドウへ移して再開する（タブを生かしたまま）。
+ * ただしセッションが変わる（Cookie を入れ替える）ときはグループを閉じて URL から開き直す
+ */
 export async function openInNewWindow(targetId) {
   const existing = await windowForWorkspace(targetId);
   if (existing !== null) {
@@ -245,9 +332,21 @@ export async function openInNewWindow(targetId) {
       placeholder = front?.id;
     }
     const state = await loadState();
+    const target = state.workspaces[targetId];
+    const parkedAt = await parkedLocation(targetId);
+    const swap = await needsCookieSwap(state, target.sessionId);
+    // 別セッションのページを生かしたままにできないので、Cookie を入れ替える前に閉じる（保存は休止中も更新されている）
+    if (parkedAt && swap) await closeParkedGroup(parkedAt.groupId);
     // 切替先のセッションの Cookie に入れ替えてからタブを開く（新しいウィンドウには前のセッションのページが無い）
-    cookieSession = await ensureCookieSession(state, state.workspaces[targetId].sessionId);
-    const { activeTabId } = await restoreTabs(win.id, state.workspaces[targetId], state.settings, placeholder ?? null);
+    cookieSession = await ensureCookieSession(state, target.sessionId);
+    let activeTabId = null;
+    if (parkedAt && !swap) {
+      await chrome.tabGroups.move(parkedAt.groupId, { windowId: win.id, index: -1 });
+      ({ activeTabId } = await unparkGroup(parkedAt.groupId, parkedAt.record));
+      if (activeTabId != null) await chrome.tabs.update(activeTabId, { active: true }).catch(() => {});
+    } else {
+      ({ activeTabId } = await restoreTabs(win.id, target, state.settings, placeholder ?? null));
+    }
     // 初期の空タブは、復元したタブが別にできたときだけ閉じる
     if (placeholder != null && activeTabId != null && placeholder !== activeTabId) {
       await chrome.tabs.remove(placeholder).catch(() => {});
@@ -532,12 +631,14 @@ export async function reconcileWindows({ restoreLastIfBlank }) {
     if (alive.has(Number(wid)) && state.workspaces[wsId]) bindings[wid] = wsId;
   }
   const boundWs = new Set(Object.values(bindings));
+  // 休止グループ（issue #35）: 記録が残っていればそれを、無ければ復元された「⏸ …」のタイトルから対応付け直し、照合と候補から外す
+  const parked = await recoverParkedGroups(wins, state, boundWs);
   const unbound = wins.filter((w) => !bindings[w.id]);
   const candidates = Object.values(state.workspaces)
-    .filter((ws) => !boundWs.has(ws.id))
+    .filter((ws) => !boundWs.has(ws.id) && !parked.workspaceIds.has(ws.id))
     .map((ws) => ({ workspaceId: ws.id, urls: ws.tabs.map((t) => t.url) }));
-  // Chrome が復元したワークスペースタブは保存 URL に含まれないので、照合から外す（重なり率が不当に下がらないように）
-  const urlsOf = (w) => w.tabs.map(tabUrl).filter((u) => !isWorkspaceTabUrl(u));
+  // Chrome が復元したワークスペースタブは保存 URL に含まれないので、照合から外す（重なり率が不当に下がらないように）。休止グループのタブも外す
+  const urlsOf = (w) => w.tabs.filter((t) => !parked.tabIdsByWindow[w.id]?.has(t.id)).map(tabUrl).filter((u) => !isWorkspaceTabUrl(u));
   const matched = matchWindowsToWorkspaces(
     unbound.map((w) => ({ windowId: w.id, urls: urlsOf(w) })),
     candidates,
@@ -573,7 +674,8 @@ export async function reconcileWindows({ restoreLastIfBlank }) {
   }
 
   // タブが復元されなかった（空タブだけの）ウィンドウには、最後に使っていたワークスペースを開く
-  if (restoreLastIfBlank && state.lastFocusedWorkspaceId && !Object.values(bindings).includes(state.lastFocusedWorkspaceId)) {
+  if (restoreLastIfBlank && state.lastFocusedWorkspaceId && !Object.values(bindings).includes(state.lastFocusedWorkspaceId)
+    && !parked.workspaceIds.has(state.lastFocusedWorkspaceId)) {
     const blankWin = wins.find((w) => !bindings[w.id] && urlsOf(w).every(isBlankUrl));
     if (blankWin) await switchWorkspace(blankWin.id, state.lastFocusedWorkspaceId);
   }
@@ -595,6 +697,7 @@ export async function onWindowRemoved(windowId) {
   // タブのスナップショットは閉じる直前までの内容が残っているのでそのまま。割り当てだけ外す
   switchingWindows.delete(windowId);
   await setBinding(windowId, null);
+  await pruneParked(); // そのウィンドウにあった休止グループの記録を捨てる
 }
 
 export { isNormalWindow };

@@ -362,12 +362,48 @@ export function createWorkspaceManager(root, ctx) {
 // ---- セッションの管理（追加・名前変更・削除・全て開く・Cookie の権限。issue #12） ----
 
 /**
- * Cookie を分けるための権限（cookies + <all_urls>）を求める。ユーザー操作の直後に呼ぶこと。
- * 許可されたら「今 Chrome に入っている Cookie は windowId のワークスペースのセッションのもの」とサービスワーカーに伝える。
- * 既に許可済みなら何もしない。拒否されたら false。request(): 権限ダイアログの出し方（既定は permissions.request）
+ * 権限を求める前の同意ダイアログ（Chrome Web Store の「目立つ開示」: 何を・何のために・どこに保存し・どう消せるかを、
+ * Chrome の権限確認より前に拡張自身が示す）。「同意して権限を許可」で true、それ以外（キャンセル / Esc）で false
  */
-export async function ensureCookiePermission({ getData, getWindowId, request = () => chrome.permissions.request(COOKIE_PERMISSION) }) {
+export function cookieConsentDialog() {
+  return new Promise((resolve) => {
+    let agreed = false;
+    const agree = h('button', { type: 'button', class: 'primary' }, '同意して権限を許可');
+    const cancel = h('button', { type: 'button' }, 'キャンセル');
+    const dlg = h('dialog', { class: 'consent' },
+      h('div', { class: 'dlg-head' }, '🍪 セッションごとに Cookie を分けるための確認'),
+      h('div', { class: 'dlg-body' },
+        h('p', {}, 'セッションごとにログイン状態を分けるには、すべてのサイトの Cookie を読み書きする権限が必要です。「同意して権限を許可」を押すと、続けて Chrome の確認が出ます。'),
+        h('ul', { class: 'consent-list' },
+          h('li', {}, h('b', {}, '何をするか: '), '別のセッションのワークスペースに切り替えるとき、今 Chrome に入っているすべてのサイトの Cookie（ログイン状態）を退避して消し、切替先のセッションの Cookie を復元します。ページの内容は読まず、スクリプトも挿入しません。'),
+          h('li', {}, h('b', {}, 'どこに保存するか: '), '退避した Cookie は、この拡張の保存領域（お使いのブラウザ内）に AES-GCM で暗号化して保存します。鍵はこのブラウザの外に出せない形で保持します。外部のサーバーには送信せず、「同期」やエクスポートにも含めません。'),
+          h('li', {}, h('b', {}, 'どう消せるか: '), '設定・管理の「セッション」にある「退避した Cookie を削除」、セッションの削除、chrome://extensions での「サイトへのアクセス」の取り消しでいつでも消せます。拡張を削除すると鍵ごとすべて消えます。'),
+        ),
+        h('p', { class: 'muted small' }, 'Chrome 全体で同時に使えるセッションは 1 つで、切替は他のウィンドウにも及びます。localStorage などサイト側の他の保存領域は分けません。'),
+      ),
+      h('div', { class: 'dlg-foot' }, cancel, agree),
+    );
+    agree.addEventListener('click', () => { agreed = true; dlg.close(); });
+    cancel.addEventListener('click', () => dlg.close());
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(agreed); });
+    document.body.append(dlg);
+    dlg.showModal();
+    agree.focus();
+  });
+}
+
+/**
+ * Cookie を分けるための権限（cookies + <all_urls>）を求める。ユーザー操作の直後に呼ぶこと。
+ * 先に同意ダイアログ（cookieConsentDialog）で保存内容・場所・削除方法を示し、同意されたら Chrome の権限確認を出す。
+ * 許可されたら「今 Chrome に入っている Cookie は windowId のワークスペースのセッションのもの」とサービスワーカーに伝える。
+ * 既に許可済みなら何もしない。同意されない・拒否されたら false。
+ * request(): 権限ダイアログの出し方（既定は permissions.request）、consent(): 同意の取り方（既定は cookieConsentDialog）
+ */
+export async function ensureCookiePermission({
+  getData, getWindowId, request = () => chrome.permissions.request(COOKIE_PERMISSION), consent = cookieConsentDialog,
+}) {
   if (await chrome.permissions.contains(COOKIE_PERMISSION)) return true;
+  if (!(await consent())) return false;
   const granted = await request();
   if (!granted) return false;
   const { state, bindings } = getData();
@@ -405,7 +441,7 @@ export function createSessionManager(root, ctx) {
     attempt(async () => {
       // セッションを分ける＝Cookie を分けるので、2 つ目以降のセッションを作る前に権限を求める（拒否されたら作らない）
       if (!(await ensureCookiePermission(ctx))) {
-        toast('Cookie を読み書きする権限が許可されなかったため、セッションを追加しませんでした', true);
+        toast('Cookie を読み書きする権限が許可されなかったため、セッションを追加しませんでした（同意と許可の両方が必要です）', true);
         return;
       }
       nameInput.value = '';

@@ -1,4 +1,4 @@
-// 配布用 zip を作る: dist/seiton-v<version>.zip（ルートに manifest.json、src/ と icons/ のみ）
+// 配布用 zip を作る: dist/seiton-v<version>.zip（ルートに manifest.json、_locales/ と src/ と icons/ のみ）
 // 使い方: node scripts/build-zip.js [--check-tag <tag>]
 import { readFileSync, mkdirSync, rmSync, cpSync, statSync, mkdtempSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
@@ -36,12 +36,12 @@ rmSync(out, { force: true });
 // 配布に必要なものだけを一時ディレクトリに集めてから zip 化する
 const stage = mkdtempSync(join(tmpdir(), 'seiton-zip-'));
 try {
-  for (const p of ['manifest.json', 'src', 'icons']) cpSync(join(root, p), join(stage, p), { recursive: true });
+  for (const p of ['manifest.json', '_locales', 'src', 'icons']) cpSync(join(root, p), join(stage, p), { recursive: true });
   if (has('zip', ['-v'])) {
     run('zip', ['-r', '-X', '-q', out, '.'], stage);
   } else if (process.platform === 'win32' && isBsdtar()) {
     // Windows 10+ 標準の bsdtar。PowerShell 5.1 の Compress-Archive はパス区切りが "\" になるため優先する
-    run('tar', ['-a', '-c', '-f', out, 'manifest.json', 'src', 'icons'], stage);
+    run('tar', ['-a', '-c', '-f', out, 'manifest.json', '_locales', 'src', 'icons'], stage);
   } else if (process.platform === 'win32' && has('powershell', ['-NoProfile', '-Command', 'exit 0'])) {
     run('powershell', ['-NoProfile', '-Command',
       `Compress-Archive -Path (Join-Path '${stage}' '*') -DestinationPath '${out}' -Force`]);

@@ -24,7 +24,7 @@ import {
 import { AUTO_CLOSE_ALARM, configureAutoClose, runAutoClose } from './lib/autoclose.js';
 import { forgetInheritedAccess } from './lib/access.js';
 import { listClosedTabs, removeClosedTab, clearClosedTabs } from './lib/history.js';
-import { cookieStatus, clearCookieJars, hasCookiePermission, adoptCookieSession } from './lib/cookies.js';
+import { cookieStatus, clearCookieJars, hasCookiePermission, adoptCookieSession, encryptCookieJars } from './lib/cookies.js';
 import { isBookmarkableUrl, findBookmarkByUrl, changedBindingWindows, indicatorSignature } from './lib/core.js';
 import {
   refreshWindowIndicator, refreshAllIndicators, refreshTabIndicator, scheduleTabIndicator,
@@ -187,6 +187,8 @@ const GUIDE_PAGE = 'src/ui/guide.html';
 chrome.runtime.onStartup.addListener(() => {
   serialize(async () => {
     const state = await loadState();
+    // 旧版が平文で退避した Cookie があれば暗号化に置き換える（切替処理と同じ直列キューの中で）
+    await encryptCookieJars().catch((e) => console.warn('[cookies] encrypt', e));
     await configureAutoDiscard(state.settings);
     await configureAutoClose(state);
     await flushDiscardQueue();
@@ -210,6 +212,8 @@ chrome.runtime.onInstalled.addListener((details) => {
     const { state: raw } = await chrome.storage.local.get('state');
     const state = normalizeState(raw);
     await saveState(state);
+    // 旧版（v1.0.1 より前）が平文で退避した Cookie があれば暗号化に置き換える
+    await encryptCookieJars().catch((e) => console.warn('[cookies] encrypt', e));
     await configureAutoDiscard(state.settings);
     await configureAutoClose(state);
     await flushDiscardQueue();

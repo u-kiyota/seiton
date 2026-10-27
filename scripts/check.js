@@ -24,6 +24,21 @@ const iconRefs = [
     : Object.values(manifest.action?.default_icon ?? {})),
 ];
 for (const r of iconRefs) if (!existsSync(join(root, r))) fail(`manifest が参照するファイルがありません: ${r}`);
+// name / description は _locales の __MSG_*__（ストアの多言語掲載のため）。default_locale と各ロケールのメッセージが揃っているか
+const msgKeys = [manifest.name, manifest.description].map((v) => /^__MSG_(\w+)__$/.exec(String(v))?.[1]).filter(Boolean);
+if (msgKeys.length) {
+  if (!manifest.default_locale) fail('manifest が __MSG_ を使うのに default_locale がありません');
+  const localesDir = join(root, '_locales');
+  if (!existsSync(join(localesDir, manifest.default_locale || '', 'messages.json'))) fail(`_locales/${manifest.default_locale}/messages.json がありません`);
+  for (const loc of existsSync(localesDir) ? readdirSync(localesDir) : []) {
+    const msgs = JSON.parse(readFileSync(join(localesDir, loc, 'messages.json'), 'utf8'));
+    for (const k of msgKeys) {
+      const m = msgs[k]?.message;
+      if (typeof m !== 'string' || !m) fail(`_locales/${loc}/messages.json に ${k} がありません`);
+      else if (k === 'extDescription' && m.length > 132) fail(`_locales/${loc} の extDescription が 132 文字を超えています（${m.length}）`);
+    }
+  }
+}
 const suggested = Object.values(manifest.commands).filter((c) => c.suggested_key).length;
 if (suggested > 4) fail(`suggested_key は 4 個までです（${suggested} 個）`);
 

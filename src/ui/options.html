@@ -103,7 +103,7 @@
           別のセッションを使うワークスペースに切り替えるとき、今の Cookie をそのセッション用に退避してすべて消し、切替先のセッションの Cookie を復元します（Chrome のプロファイルを切り替えるのに近い動き）。
           Chrome 全体で同時に使えるセッションは 1 つで、切替は他のウィンドウにも及びます（別のセッションのワークスペースを開いているウィンドウは、次の読み込みから切替先のログイン状態になります）。
           Cookie を読み書きする権限（すべてのサイト）が必要で、2 つ目のセッションを追加するときに Chrome が確認を出します。localStorage などサイト側の他の保存領域は分けません。
-          退避した Cookie はこの拡張の保存領域（<code>chrome.storage.local</code>）に平文で保存され、エクスポートには含まれません。
+          退避した Cookie はこの拡張の保存領域（<code>chrome.storage.local</code>）に AES-GCM で暗号化して保存され（鍵はこのブラウザの外に出せない形で保持）、エクスポートや同期には含まれません。
         </div>
         <div id="cookieStatus" class="cookie-status"></div>
         <div class="row">
@@ -129,6 +129,10 @@
             </select>
           </label>
           <div class="desc">管理パネルの検索ボックスの Enter・ワークスペース行のクリック・番号キー、クイックパレットの Enter で使う方法です。Ctrl+Enter（Mac は ⌘+Enter）は「休止して切替」との入れ替え（既定が休止なら「閉じる切替」）、Shift+Enter は「新しいウィンドウ」との入れ替えになります。行の ⏸ / ⧉ ボタンは設定に関係なくそれぞれ休止 / 新しいウィンドウです。休止については使い方ページを参照。</div>
+        </div>
+        <div class="field">
+          <label>閲覧履歴の検索 <span id="historyPermState" class="muted small"></span> <span id="historyPermSlot"></span></label>
+          <div class="desc">管理パネルの検索ボックスで、ワークスペース・ブックマークに加えて Chrome の閲覧履歴もタイトル・URL で検索します。任意の権限で、許可すると検索のときに履歴を読むだけで、保存や送信はしません。いつでも取り消せます。</div>
         </div>
         <div class="field">
           <label><input id="workspaceTab" type="checkbox"> ウィンドウの左端にワークスペースタブ（色付きのグループ）を表示</label>

@@ -5,10 +5,23 @@ import assert from 'node:assert/strict';
 // cookies.js はモジュール読み込み時に chrome を触らないので、先に偽物を用意してから import する
 const fake = makeFakeChrome();
 globalThis.chrome = fake.chrome;
+const { setKeyStore, decryptJson, isEncrypted } = await import('../src/lib/vault.js');
+// 鍵の置き場（本物は IndexedDB）をメモリに差し替える
+let vaultKey = null;
+setKeyStore({ async get() { return vaultKey; }, async add(k) { if (vaultKey) throw new Error('exists'); vaultKey = k; }, async delete() { vaultKey = null; } });
 const {
   swapCookies, ensureCookieSession, needsCookieSwap, forgetSessionJar, clearCookieJars, cookieStatus,
-  adoptCookieSession, getCookieSessionId, COOKIE_JARS_KEY, COOKIE_SESSION_KEY,
+  adoptCookieSession, getCookieSessionId, encryptCookieJars, COOKIE_JARS_KEY, COOKIE_SESSION_KEY,
 } = await import('../src/lib/cookies.js');
+
+/** 保存された jar を復号して { savedAt, cookies } にする（テストの検証用） */
+async function jarOf(id) {
+  const raw = fake.store[COOKIE_JARS_KEY]?.[id];
+  if (!raw) return undefined;
+  assert.equal(isEncrypted(raw), true, `jar ${id} は暗号化されている`);
+  assert.equal('cookies' in raw, false, `jar ${id} に平文の cookies が無い`);
+  return { savedAt: raw.savedAt, cookies: await decryptJson(raw) };
+}
 
 function cookie(name, domain, extra = {}) {
   return {
@@ -90,7 +103,8 @@ test('swapCookies: 今の Cookie を from に退避して全部消し、to の C
   assert.equal(res.restored, 0, 'B には退避した Cookie が無いので空になる');
   assert.equal(res.failed, 0);
   assert.deepEqual(fake.cookies, [], 'Chrome の Cookie は空');
-  assert.equal(fake.store[COOKIE_JARS_KEY].A.cookies.length, 2, 'A の jar に 2 件退避');
+  assert.equal((await jarOf('A')).cookies.length, 2, 'A の jar に 2 件退避');
+  assert.equal(JSON.stringify(fake.store[COOKIE_JARS_KEY]).includes('v-sid'), false, '保存形に Cookie の値が平文で現れない');
   assert.equal(await getCookieSessionId(), 'B');
 
   // B でログインした体で Cookie を足し、A に戻す
@@ -105,7 +119,7 @@ test('swapCookies: 今の Cookie を from に退避して全部消し、to の C
   const pref = fake.cookies.find((c) => c.name === 'pref');
   assert.equal(pref.domain, '.example.com', 'ドメイン Cookie はドメインを保つ');
   assert.equal(pref.sameSite, 'no_restriction');
-  assert.equal(fake.store[COOKIE_JARS_KEY].B.cookies[0].value, 'dev-login', 'B の jar に B のログインが退避されている');
+  assert.equal((await jarOf('B')).cookies[0].value, 'dev-login', 'B の jar に B のログインが退避されている');
   assert.equal(await getCookieSessionId(), 'A');
 });
 
@@ -115,10 +129,13 @@ test('swapCookies: セッション Cookie は expirationDate 無しで復元し�
     cookie('p', 'a.test', { partitionKey: { topLevelSite: 'https://top.test' } }),
   ]);
   await swapCookies('A', 'B');
-  assert.equal(fake.store[COOKIE_JARS_KEY].A.cookies.length, 2);
-  // 退避している間に期限が切れた Cookie（Chrome 自身は期限切れを getAll で返さないので、jar に直接混ぜる）
+  assert.equal((await jarOf('A')).cookies.length, 2);
+  // 退避している間に期限が切れた Cookie（Chrome 自身は期限切れを getAll で返さないので、旧版の平文 jar の形で直接混ぜる。
+  // 平文 jar も読めることの確認を兼ねる）
   const jars = fake.store[COOKIE_JARS_KEY];
-  jars.A.cookies.push(cookie('old', 'a.test', { expirationDate: Math.floor(Date.now() / 1000) - 10 }));
+  const a = await jarOf('A');
+  a.cookies.push(cookie('old', 'a.test', { expirationDate: Math.floor(Date.now() / 1000) - 10 }));
+  jars.A = a;
   await fake.chrome.storage.local.set({ [COOKIE_JARS_KEY]: jars });
   await swapCookies('B', 'A');
   const names = fake.cookies.map((c) => c.name).sort();
@@ -211,4 +228,37 @@ test('cookieStatus: enabled は無く permitted だけを返す', async () => {
   const st = await cookieStatus(state(), { live: false });
   assert.equal('enabled' in st, false);
   assert.equal(st.permitted, true);
+});
+
+test('encryptCookieJars: 旧版の平文 jar を暗号化に置き換え、暗号化済みはそのまま', async () => {
+  fake.reset([cookie('sid', 'github.com')]);
+  await swapCookies('A', 'B'); // A は暗号化済み
+  const before = JSON.stringify(fake.store[COOKIE_JARS_KEY].A);
+  const jars = fake.store[COOKIE_JARS_KEY];
+  jars.B = { savedAt: 123, cookies: [cookie('legacy', 'old.test')] }; // 旧版の平文
+  jars.C = { savedAt: 1, cookies: 'broken' }; // 壊れたもの（normalizeCookieJar が空にする）
+  await fake.chrome.storage.local.set({ [COOKIE_JARS_KEY]: jars });
+  assert.equal(await encryptCookieJars(), 2, 'B と C を処理');
+  assert.equal(JSON.stringify(fake.store[COOKIE_JARS_KEY].A), before, '暗号化済みの A は触らない');
+  const b = await jarOf('B');
+  assert.equal(b.savedAt, 123);
+  assert.equal(b.cookies[0].name, 'legacy');
+  assert.equal(isEncrypted(fake.store[COOKIE_JARS_KEY].C), true, '壊れた jar も空の暗号化 jar に置き換える');
+  assert.deepEqual(await decryptJson(fake.store[COOKIE_JARS_KEY].C), []);
+  assert.equal(await encryptCookieJars(), 0, '2 回目は何もしない');
+  const st = await cookieStatus(state(), { live: false });
+  assert.equal(st.jars.B.count, 1, '暗号化後も表示用の件数が出る');
+});
+
+test('復号できない jar（鍵が変わった）は「退避 Cookie なし」として扱い、切替は止めない', async () => {
+  fake.reset([cookie('sid', 'github.com')]);
+  await swapCookies('A', 'B');
+  vaultKey = null; // 鍵が失われた体
+  setKeyStore({ async get() { return vaultKey; }, async add(k) { if (vaultKey) throw new Error('exists'); vaultKey = k; }, async delete() { vaultKey = null; } });
+  const st = await cookieStatus(state(), { live: false });
+  assert.deepEqual(st.jars, {}, '読めない jar は表示しない');
+  fake.cookies.push(cookie('b', 'b.test'));
+  const res = await swapCookies('B', 'A');
+  assert.equal(res.restored, 0, 'A の jar は読めないので何も復元しない');
+  assert.equal((await jarOf('B')).cookies.length, 1, '新しい鍵で B は退避できている');
 });

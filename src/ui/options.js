@@ -316,7 +316,32 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && (changes.syncStatus || changes.state)) attempt(() => renderSync());
 });
 
+// ---- 閲覧履歴の検索（任意権限 history）: 管理パネルの検索結果からも許可できる。取り消しはここだけ ----
+
+const HISTORY_PERMISSION = { permissions: ['history'] };
+
+async function renderHistoryPerm() {
+  let ok = false;
+  try { ok = await chrome.permissions.contains(HISTORY_PERMISSION); } catch { /* 権限 API が使えない */ }
+  $('historyPermState').textContent = ok ? '許可済み' : '未許可';
+  const btn = ok
+    ? h('button', { type: 'button', onclick: () => attempt(async () => {
+      await chrome.permissions.remove(HISTORY_PERMISSION);
+      toast('閲覧履歴を読む権限を取り消しました');
+      await renderHistoryPerm();
+    }) }, '権限を取り消す')
+    : h('button', { type: 'button', onclick: () => attempt(async () => {
+      const granted = await chrome.permissions.request(HISTORY_PERMISSION);
+      toast(granted ? '閲覧履歴も検索します' : '権限が許可されませんでした', !granted);
+      await renderHistoryPerm();
+    }) }, '権限を許可する');
+  $('historyPermSlot').replaceChildren(btn);
+}
+chrome.permissions.onAdded.addListener(() => attempt(renderHistoryPerm));
+chrome.permissions.onRemoved.addListener(() => attempt(renderHistoryPerm));
+
 attempt(load);
+attempt(renderHistoryPerm);
 attempt(() => renderSync());
 attempt(async () => {
   windowId = (await chrome.windows.getCurrent()).id;

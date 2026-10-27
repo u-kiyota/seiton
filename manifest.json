@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "seiton",
-  "description": "タブとブックマークをワークスペース単位で整理・切り替え。ログイン状態のセッション切替、ブラウザ間同期、使っていないタブの自動クローズにも対応。",
+  "name": "__MSG_extName__",
+  "description": "__MSG_extDescription__",
+  "default_locale": "en",
   "version": "1.0.1",
   "minimum_chrome_version": "121",
   "icons": {
@@ -21,10 +22,9 @@
     "unlimitedStorage",
     "bookmarks",
     "alarms",
-    "favicon",
-    "history"
+    "favicon"
   ],
-  "optional_permissions": ["cookies"],
+  "optional_permissions": ["cookies", "history"],
   "optional_host_permissions": ["<all_urls>"],
   "action": {
     "default_title": "seiton (クイックパレット)",

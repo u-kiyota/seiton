@@ -1246,6 +1246,22 @@ function searchEntry({ icon, url, title, sub, time, run }) {
   return entry;
 }
 
+// 閲覧履歴の検索に使う任意権限（manifest の optional_permissions）。検索結果の「権限を許可する」で求める
+const HISTORY_PERMISSION = { permissions: ['history'] };
+
+async function hasHistoryPermission() {
+  try { return await chrome.permissions.contains(HISTORY_PERMISSION); } catch { return false; }
+}
+
+/** ユーザー操作の直後に呼ぶ（Chrome の権限確認が出る）。許可されたら検索をやり直す */
+async function requestHistoryPermission() {
+  const granted = await chrome.permissions.request(HISTORY_PERMISSION);
+  if (!granted) { toast('権限が許可されなかったため、閲覧履歴は検索しません', true); return; }
+  if (!chrome.history) { toast('許可しました。パネルを開き直すと閲覧履歴も検索できます'); return; }
+  toast('閲覧履歴も検索します');
+  await runSearch();
+}
+
 function closeSearch() {
   const box = $('searchResults');
   box.hidden = true;
@@ -1324,14 +1340,25 @@ async function runSearch() {
     }));
   }
 
-  // 閲覧履歴（Chrome の URL バーと同様にタイトル・URL で検索。新しい順）
+  // 閲覧履歴（Chrome の URL バーと同様にタイトル・URL で検索。新しい順）。
+  // history は任意権限なので、無ければ結果の代わりに「権限を許可する」を出す（許可されるまで履歴は読まない）
   let hist = [];
-  try {
-    hist = await chrome.history.search({ text: q, maxResults: 60, startTime: 0 });
-  } catch (e) {
-    console.warn('[search] history', e);
+  const histOk = await hasHistoryPermission();
+  if (histOk) {
+    try {
+      hist = await chrome.history.search({ text: q, maxResults: 60, startTime: 0 });
+    } catch (e) {
+      console.warn('[search] history', e);
+    }
   }
   if (seq !== searchSeq) return;
+  if (!histOk) {
+    section('閲覧履歴');
+    out.push(h('div', { class: 'hint perm-hint' },
+      h('span', {}, '閲覧履歴も検索するには、閲覧履歴を読む権限が必要です（検索のときに読むだけで、保存や送信はしません）。'),
+      h('button', { type: 'button', onclick: () => attempt(requestHistoryPermission) }, '権限を許可する'),
+    ));
+  }
   const seen = new Set([...bms, ...shelfHits].map((b) => normalizeUrlForMatch(b.url)));
   const histList = [];
   for (const hItem of hist.sort((a, b) => (b.lastVisitTime || 0) - (a.lastVisitTime || 0))) {
@@ -1341,7 +1368,7 @@ async function runSearch() {
     histList.push(hItem);
     if (histList.length >= 20) break;
   }
-  section(`閲覧履歴（${histList.length}）`);
+  if (histOk) section(`閲覧履歴（${histList.length}）`);
   for (const hItem of histList) {
     push(searchEntry({
       url: hItem.url,

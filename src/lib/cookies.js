@@ -23,9 +23,9 @@ export async function hasCookiePermission() {
   }
 }
 
-/** 分離が実際に働く状態か（設定が ON で、権限もある） */
-export async function isolationActive(state) {
-  return !!state?.settings?.cookieIsolation && await hasCookiePermission();
+/** 分離が働く状態か（= 権限がある。ON / OFF の設定は無く、セッションを追加するときに権限を求める） */
+export async function isolationActive() {
+  return hasCookiePermission();
 }
 
 async function getJars() {
@@ -102,7 +102,7 @@ export async function swapCookies(fromId, toId) {
 /** sessionId のワークスペースを開くと Cookie の入れ替えが起きるか（分離が有効で、今の Cookie が別のセッションのもの） */
 export async function needsCookieSwap(state, sessionId) {
   if (!sessionId || !state?.sessions?.[sessionId]) return false;
-  if (!(await isolationActive(state))) return false;
+  if (!(await isolationActive())) return false;
   return (await getCookieSessionId()) !== sessionId;
 }
 
@@ -112,7 +112,7 @@ export async function needsCookieSwap(state, sessionId) {
  */
 export async function ensureCookieSession(state, sessionId) {
   if (!sessionId || !state?.sessions?.[sessionId]) return null;
-  if (!(await isolationActive(state))) return null;
+  if (!(await isolationActive())) return null;
   const current = await getCookieSessionId();
   if (current === sessionId) return null;
   const res = await swapCookies(state.sessions[current] ? current : null, sessionId);
@@ -136,7 +136,7 @@ export async function clearCookieJars() {
 export async function cookieStatus(state, { hosts = 8, live = true } = {}) {
   const permitted = await hasCookiePermission();
   const jars = await getJars();
-  const out = { permitted, enabled: !!state?.settings?.cookieIsolation, cookieSessionId: await getCookieSessionId(), jars: {}, live: null };
+  const out = { permitted, cookieSessionId: await getCookieSessionId(), jars: {}, live: null };
   for (const [id, raw] of Object.entries(jars)) {
     const jar = normalizeCookieJar(raw);
     if (!jar) continue;
@@ -151,19 +151,16 @@ export async function cookieStatus(state, { hosts = 8, live = true } = {}) {
   return out;
 }
 
-/** 権限が無いのに設定が ON のままなら OFF に戻す（権限の取り消し・インポート後の整合）。変更したら true */
-export async function reconcileCookieIsolation(state) {
-  if (!state.settings.cookieIsolation) return false;
-  if (await hasCookiePermission()) return false;
-  state.settings.cookieIsolation = false;
-  return true;
-}
-
-/** 設定画面の OFF: 権限を返上する（退避した Cookie と「今の Cookie のセッション」は残し、再度 ON にしたとき続きから使える） */
-export async function releaseCookiePermission() {
-  try {
-    await chrome.permissions.remove({ permissions: [...COOKIE_PERMISSION.permissions], origins: [...COOKIE_PERMISSION.origins] });
-  } catch (e) {
-    console.warn('[cookies] failed to remove permission', e);
-  }
+/**
+ * 権限が許可された直後（セッションの追加時）に呼ぶ。「今 Chrome に入っている Cookie がどのセッションのものか」がまだ無ければ決める。
+ * sessionId（権限を求めたウィンドウのワークスペースのセッション）→ 最後に使ったワークスペースのセッション → 先頭のセッション の順。
+ * 既に決まっていれば変えない（権限を取り消して許可し直したときに、退避した Cookie との対応を崩さない）
+ */
+export async function adoptCookieSession(state, sessionId) {
+  const current = await getCookieSessionId();
+  if (current && state.sessions[current]) return { cookieSessionId: current, adopted: false };
+  const last = state.workspaces[state.lastFocusedWorkspaceId]?.sessionId;
+  const sid = state.sessions[sessionId] ? sessionId : (state.sessions[last] ? last : state.sessionOrder[0]);
+  await setCookieSessionId(sid);
+  return { cookieSessionId: sid, adopted: true };
 }

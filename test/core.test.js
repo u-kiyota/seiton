@@ -14,6 +14,7 @@ import {
   cookieUrl, cookieSetDetails, cookieRemoveDetails, cookieKey, isExpiredCookie, dedupeCookies, normalizeCookieJar, cookieHosts,
   WORKSPACE_DRAG_TYPE, parseWorkspaceDragData, moveInOrder, dropPlacement, reorderDropIndex,
   workspaceOfTab, appendSavedTabs, removeSavedTabsByUrl, takeSavedTabs, moveTabsMessage,
+  SHELF_DRAG_TYPE, normalizeShelf, shelfAdd, shelfRemove, shelfMove, parseShelfDragData,
 } from '../src/lib/core.js';
 
 // ---- セッションごとの Cookie の分離（issue #12） ----
@@ -846,4 +847,57 @@ test('moveTabsMessage: 移動先の状態ごとの文言と対象外の件数', 
   assert.equal(moveTabsMessage({ moved: 2, mode: 'window', workspaceName: 'A' }), '2 個のタブを「A」のウィンドウへ移しました');
   assert.equal(moveTabsMessage({ moved: 1, mode: 'parked', workspaceName: 'A' }), '1 個のタブを「A」の休止グループへ移しました');
   assert.equal(moveTabsMessage({ moved: 3, skipped: 1, mode: 'saved', workspaceName: 'A' }), '3 個のタブを「A」の保存タブに加えました（1 個は対象外）');
+});
+
+// ---- よく開くタブ置き場（issue #34） ----
+
+test('normalizeShelf: URL が無い・保存できない・重複を除き、タイトルが無ければ URL', () => {
+  const out = normalizeShelf([
+    { url: 'https://a/', title: 'A', addedAt: 1 },
+    { url: 'https://a/#x', title: 'dup' },
+    { url: 'https://b' },
+    { url: 'chrome-extension://abc/x.html', title: 'ext' },
+    { title: 'no url' },
+    null,
+  ]);
+  assert.deepEqual(out, [{ url: 'https://a/', title: 'A' }, { url: 'https://b', title: 'https://b' }]);
+  assert.deepEqual(normalizeShelf(undefined), []);
+  assert.deepEqual(normalizeShelf('x'), []);
+});
+
+test('shelfAdd / shelfRemove: 同じ URL は足さず、末尾スラッシュ・フラグメントを無視して外す', () => {
+  const r1 = shelfAdd([], { url: 'https://a/', title: 'A' });
+  assert.deepEqual(r1, { list: [{ url: 'https://a/', title: 'A' }], added: true });
+  const r2 = shelfAdd(r1.list, { url: 'https://a#top', title: 'A2' });
+  assert.equal(r2.added, false);
+  assert.deepEqual(r2.list, r1.list);
+  assert.equal(shelfAdd(r1.list, { url: 'chrome://settings/' }).added, true, 'chrome:// は保存できる（開けないことはある）');
+  assert.equal(shelfAdd(r1.list, { url: '' }).added, false);
+  assert.equal(shelfAdd(r1.list, { url: 'chrome-extension://x/y.html' }).added, false);
+  assert.equal(shelfAdd(r1.list, {}).added, false);
+  const r3 = shelfRemove(r1.list, 'https://a');
+  assert.deepEqual(r3, { list: [], removed: true });
+  assert.deepEqual(shelfRemove(r1.list, 'https://zzz/'), { list: r1.list, removed: false });
+});
+
+test('shelfMove: toIndex は自分を除いた並びでの位置。無い URL なら変わらない', () => {
+  const list = [{ url: 'https://a/', title: 'A' }, { url: 'https://b/', title: 'B' }, { url: 'https://c/', title: 'C' }];
+  assert.deepEqual(shelfMove(list, 'https://c', 0).map((i) => i.title), ['C', 'A', 'B']);
+  assert.deepEqual(shelfMove(list, 'https://a/', 1).map((i) => i.title), ['B', 'A', 'C']);
+  assert.deepEqual(shelfMove(list, 'https://a/', 99).map((i) => i.title), ['B', 'C', 'A']);
+  assert.deepEqual(shelfMove(list, 'https://zzz/', 0).map((i) => i.title), ['A', 'B', 'C']);
+});
+
+test('parseShelfDragData / SHELF_DRAG_TYPE', () => {
+  assert.equal(SHELF_DRAG_TYPE, 'application/x-seiton-shelf');
+  assert.equal(parseShelfDragData((t) => (t === SHELF_DRAG_TYPE ? JSON.stringify({ url: 'https://a/' }) : '')), 'https://a/');
+  assert.equal(parseShelfDragData(() => ''), null);
+  assert.equal(parseShelfDragData(() => '{bad'), null);
+  assert.equal(parseShelfDragData(() => { throw new Error('x'); }), null);
+});
+
+test('normalizeState: ワークスペースの shelf を正規化する（無ければ空）', () => {
+  const st = normalizeState({ workspaces: { a: { name: 'A', shelf: [{ url: 'https://a/' }, { url: 'https://a/' }] }, b: { name: 'B' } } });
+  assert.deepEqual(st.workspaces.a.shelf, [{ url: 'https://a/', title: 'https://a/' }]);
+  assert.deepEqual(st.workspaces.b.shelf, []);
 });

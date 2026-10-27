@@ -5,7 +5,7 @@ import {
   SYNC_TITLE_MAX, SYNC_META_KEY, LOCAL_ONLY_SETTINGS, utf8Bytes, canon, same, syncSettings, syncTab, syncTabsFrom, tabsFromSync,
   syncWorkspaceEntry, buildSyncDoc, docMeta, docFromParts, pick3, mergeSyncDocs, emptyDoc, applySyncDoc,
   syncItemBytes, wsChunkKey, parseWsChunkKey, chunkSyncBlob, joinSyncChunks, wsChunkCounts, measureSyncItems,
-  pickTabsToOmit, omitTabs, diffSyncItems, omittedWorkspaces,
+  pickTabsToOmit, omitTabs, diffSyncItems, omittedWorkspaces, shelfFromSync,
 } from '../src/lib/syncdoc.js';
 import { normalizeState, defaultState, DEFAULT_SETTINGS } from '../src/lib/core.js';
 
@@ -331,4 +331,30 @@ test('diffSyncItems: 変わったワークスペースと m だけ書き、消�
   const d2 = diffSyncItems({ items, remoteItems: { [SYNC_META_KEY]: docMeta(doc), 'w.a.0': '1|za', 'w.b.0': 'junk' }, remoteDoc: broken, doc });
   assert.deepEqual(Object.keys(d2.set).sort(), ['w.b.0']);
   assert.deepEqual(d2.remove, []);
+});
+
+// ---- よく開くタブ置き場（issue #34）は同期する ----
+
+test('syncWorkspaceEntry / shelfFromSync: 置き場はタブと同じ縮約形で同期し、戻せる', () => {
+  const e = syncWorkspaceEntry(ws('a', { shelf: [{ url: 'https://a/', title: 'A' }, { url: 'https://b/', title: 'https://b/' }] }));
+  assert.deepEqual(e.shelf, [{ u: 'https://a/', t: 'A' }, { u: 'https://b/' }]);
+  assert.deepEqual(shelfFromSync(e.shelf), [{ url: 'https://a/', title: 'A' }, { url: 'https://b/', title: 'https://b/' }]);
+  assert.deepEqual(syncWorkspaceEntry(ws('b')).shelf, []);
+  assert.deepEqual(shelfFromSync(undefined), []);
+});
+
+test('applySyncDoc: 置き場が同じなら今のものを保ち、違えば置き換える。タブを省いたエントリでも置き場は届く', () => {
+  const shelf = [{ url: 'https://a/', title: 'A' }];
+  const local = stateWith([ws('a', { shelf })]);
+  const doc = buildSyncDoc(local);
+  const same1 = applySyncDoc(local, doc);
+  assert.equal(same1.workspaces.a.shelf, local.workspaces.a.shelf, '同じ内容なら同じ配列');
+  doc.workspaces.a.shelf = [{ u: 'https://b/', t: 'B' }];
+  const changed = applySyncDoc(local, doc);
+  assert.deepEqual(changed.workspaces.a.shelf, [{ url: 'https://b/', title: 'B' }]);
+  const omitted = omitTabs(doc.workspaces.a);
+  assert.deepEqual(omitted.shelf, [{ u: 'https://b/', t: 'B' }], 'タブを省いても置き場は残る');
+  const applied = applySyncDoc(local, { ...doc, workspaces: { a: omitted } });
+  assert.deepEqual(applied.workspaces.a.shelf, [{ url: 'https://b/', title: 'B' }]);
+  assert.equal(applied.workspaces.a.tabs, local.workspaces.a.tabs);
 });

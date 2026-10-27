@@ -86,6 +86,20 @@ function render() {
     }));
   }
 
+  // よく開くタブ置き場（issue #34）。ワークスペース検索モードと、置き場が空のときは出さない
+  if (!wsOnly && ws && palette.shelf?.length) {
+    const shelf = palette.shelf.filter((s) => matchesQuery(`${s.title} ${s.url}`, q));
+    out.push(h('div', { class: 'section' }, `よく開くタブ（${shelf.length}）`));
+    for (const s of shelf) {
+      push(item({
+        icon: h('img', { class: 'fav', src: faviconUrl(s.url) }),
+        title: s.title,
+        sub: hostOf(s.url),
+        run: (shift) => attempt(() => openUrl(s.url, shift)),
+      }));
+    }
+  }
+
   // 接続フォルダのブックマーク
   if (wsOnly) {
     // ワークスペース検索モード: ブックマークは出さない

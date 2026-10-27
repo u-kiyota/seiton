@@ -115,6 +115,8 @@ export function normalizeState(raw) {
     ws.groups = ws.groups || {};
     ws.icon = normalizeIcon(ws.icon);
     ws.autoClose = normalizeAutoCloseOverride(ws.autoClose, state.settings.autoClose);
+    // よく開くタブ置き場（issue #34）
+    ws.shelf = normalizeShelf(ws.shelf);
     // 同期で受け取ったがこのブラウザにはまだ無い接続フォルダのパス（issue #4）。文字列の配列以外は捨てる
     if ('bookmarkFolderPath' in ws && !(Array.isArray(ws.bookmarkFolderPath) && ws.bookmarkFolderPath.length && ws.bookmarkFolderPath.every((t) => typeof t === 'string'))) {
       delete ws.bookmarkFolderPath;
@@ -1081,4 +1083,62 @@ export function moveTabsMessage({ moved, skipped = 0, mode, workspaceName }) {
       : 'の保存タブに加えました';
   const msg = `${moved} 個のタブを「${workspaceName}」${where}`;
   return skipped ? `${msg}（${skipped} 個は対象外）` : msg;
+}
+
+// ---- よく開くタブ置き場（issue #34）: ブックマークするほどではないが、よく開くページをワークスペースごとに置いておく ----
+
+/** 置き場の行をドラッグする時の独自 MIME タイプ（置き場内の並び替え用。タブとしての形式も併せて付ける） */
+export const SHELF_DRAG_TYPE = 'application/x-seiton-shelf';
+
+/** 置き場の項目の正規化: [{ url, title }]。URL が無い・保存できない・重複（フラグメント・末尾スラッシュ無視）のものは除く */
+export function normalizeShelf(list) {
+  const out = [];
+  const seen = new Set();
+  for (const it of Array.isArray(list) ? list : []) {
+    const url = typeof it?.url === 'string' ? it.url : '';
+    const key = normalizeUrlForMatch(url);
+    if (!key || !isRestorableUrl(url) || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ url, title: typeof it.title === 'string' && it.title ? it.title : url });
+  }
+  return out;
+}
+
+/** 置き場に 1 件足す（同じ URL があれば足さない）。戻り値: { list, added } */
+export function shelfAdd(list, { url, title } = {}) {
+  const cur = normalizeShelf(list);
+  if (typeof url !== 'string' || !normalizeUrlForMatch(url) || !isRestorableUrl(url) || findBookmarkByUrl(cur, url)) {
+    return { list: cur, added: false };
+  }
+  return { list: [...cur, { url, title: typeof title === 'string' && title ? title : url }], added: true };
+}
+
+/** 置き場から url の項目を外す。戻り値: { list, removed } */
+export function shelfRemove(list, url) {
+  const cur = normalizeShelf(list);
+  const key = normalizeUrlForMatch(url);
+  const next = cur.filter((it) => normalizeUrlForMatch(it.url) !== key);
+  return { list: next, removed: next.length !== cur.length };
+}
+
+/** 置き場の並び替え: url の項目を toIndex（その項目を除いた並びでの位置）へ動かした新しい配列 */
+export function shelfMove(list, url, toIndex) {
+  const cur = normalizeShelf(list);
+  const keys = cur.map((it) => normalizeUrlForMatch(it.url));
+  const next = moveInOrder(keys, normalizeUrlForMatch(url), toIndex);
+  const byKey = new Map(cur.map((it, i) => [keys[i], it]));
+  return next.map((k) => byKey.get(k));
+}
+
+/** ドラッグデータから置き場の項目の URL を取り出す（置き場の行以外のドラッグなら null） */
+export function parseShelfDragData(getData) {
+  let raw = '';
+  try { raw = getData(SHELF_DRAG_TYPE) || ''; } catch { /* 読めない形式 */ }
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v.url === 'string' && v.url ? v.url : null;
+  } catch {
+    return null;
+  }
 }

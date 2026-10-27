@@ -6,17 +6,29 @@
   <link rel="icon" href="../../icons/icon32.png">
   <link rel="stylesheet" href="common.css">
   <style>
-    body { max-width: 720px; margin: 24px auto; padding: 0 16px; }
+    body { max-width: 980px; margin: 24px auto; padding: 0 16px; }
     .settings-brand { display: flex; align-items: center; gap: 14px; }
     .settings-brand img { width: 64px; height: 64px; border-radius: 14px; display: block; }
     h1 { font-size: 20px; margin: 0; }
-    h2 { font-size: 15px; margin-top: 28px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+    /* 設定項目ごとのページ分け（issue #23）: 左のナビで節を切り替える */
+    .layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 28px; margin-top: 20px; align-items: start; }
+    .sidenav { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 2px; }
+    .sidenav a {
+      display: block; padding: 7px 12px; border-radius: 8px; text-decoration: none; color: var(--fg); font-size: 13px;
+    }
+    .sidenav a:hover { background: var(--bg-hover); }
+    .sidenav a.on { background: var(--bg-sel); font-weight: 600; }
+    .sidenav .sidenav-sub { font-size: 11px; color: var(--fg-sub); display: block; font-weight: normal; }
+    section.sec { display: none; }
+    section.sec.on { display: block; }
+    h2 { font-size: 17px; margin: 0 0 4px; }
+    .sec-lead { margin: 0 0 16px; color: var(--fg-sub); font-size: 12px; }
+    h3 { font-size: 14px; margin: 24px 0 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
     .field { margin: 12px 0; }
     .field label { display: flex; align-items: center; gap: 8px; }
     .desc { margin: 2px 0 0 24px; color: var(--fg-sub); font-size: 12px; }
     input[type=number] { width: 80px; }
     code { background: var(--bg-sub); padding: 1px 4px; border-radius: 4px; }
-    .exclude-title { font-weight: 600; }
     .exclude-desc { margin-left: 0; }
     .exclude-list { display: flex; flex-direction: column; gap: 4px; margin: 8px 0 6px; }
     .exclude-row { display: flex; align-items: center; gap: 6px; }
@@ -30,6 +42,12 @@
     .cookie-status .now { font-weight: 600; }
     .cookie-status .hosts { color: var(--fg-sub); font-size: 12px; }
     #cookieSession { max-width: 260px; }
+    @media (max-width: 720px) {
+      .layout { grid-template-columns: 1fr; gap: 16px; }
+      .sidenav { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+      .sidenav a { padding: 4px 10px; border: 1px solid var(--border); border-radius: 12px; font-size: 12px; }
+      .sidenav .sidenav-sub { display: none; }
+    }
   </style>
 </head>
 <body>
@@ -40,100 +58,140 @@
     <button id="openGuide">使い方を見る</button>
   </div>
 
-  <h2>表示</h2>
-  <div class="field">
-    <label><input id="workspaceTab" type="checkbox"> ウィンドウの左端にワークスペースタブ（色付きのグループ）を表示</label>
-    <div class="desc">タブ列の左端（固定タブの直後）に、今のワークスペースの名前と色のラベルを常に出します。ラベルをクリックすると開き、中のタブでワークスペースの切替・管理パネル・ブックマークを使えます。OFF にすると全ウィンドウのワークスペースタブを閉じます。</div>
-  </div>
+  <div class="layout">
+    <nav class="sidenav" aria-label="設定の項目">
+      <a href="#display">表示<span class="sidenav-sub">ワークスペースタブ</span></a>
+      <a href="#memory">メモリ<span class="sidenav-sub">遅延読み込み・自動休止</span></a>
+      <a href="#autoclose">タブの自動クローズ<span class="sidenav-sub">期間・除外 URL・閉じたタブ</span></a>
+      <a href="#session">セッション<span class="sidenav-sub">Cookie / ログイン状態の分離</span></a>
+      <a href="#bookmarks">ブックマーク<span class="sidenav-sub">自動移動・親フォルダ</span></a>
+      <a href="#shortcuts">ショートカット<span class="sidenav-sub">キーの確認・変更</span></a>
+      <a href="#backup">バックアップ<span class="sidenav-sub">エクスポート / インポート</span></a>
+    </nav>
 
-  <h2>メモリ</h2>
-  <div class="field">
-    <label><input id="lazyRestore" type="checkbox"> ワークスペースを開く時、アクティブ以外のタブを読み込まない（遅延読み込み）</label>
-    <div class="desc">タブはタブバーに表示されたまま、クリックした時点で読み込まれます。推奨: ON</div>
-  </div>
-  <div class="field">
-    <label>非アクティブな状態が <input id="autoDiscardMinutes" type="number" min="0" step="5"> 分続いたタブを自動で休止（0 = 無効）</label>
-    <div class="desc">
-      通常は Chrome 標準の「メモリセーバー」（<a href="#" id="openPerf">chrome://settings/performance</a>）に任せるのがおすすめです。
-      メモリセーバーはメモリ逼迫度やタブの状態（フォーム入力中・音声再生中など）を考慮して休止するため、こちらは「確実に N 分で休止させたい」場合だけ使ってください。固定タブと音声再生中のタブは対象外です。
-    </div>
-  </div>
+    <main>
+      <section class="sec" id="sec-display" data-section="display">
+        <h2>表示</h2>
+        <p class="sec-lead">ウィンドウの見た目に関する設定です。</p>
+        <div class="field">
+          <label><input id="workspaceTab" type="checkbox"> ウィンドウの左端にワークスペースタブ（色付きのグループ）を表示</label>
+          <div class="desc">タブ列の左端（固定タブの直後）に、今のワークスペースの名前と色のラベルを常に出します。ラベルをクリックすると開き、中のタブでワークスペースの切替・管理パネル・ブックマークを使えます。OFF にすると全ウィンドウのワークスペースタブを閉じます。</div>
+        </div>
+      </section>
 
-  <h2>タブの自動クローズ</h2>
-  <div class="field">
-    <label><input id="autoCloseEnabled" type="checkbox"> 長期間使っていないタブを自動で閉じる</label>
-  </div>
-  <div class="field">
-    <label>最後に使ってから <input id="autoCloseValue" type="number" min="1" step="1" style="width: 5em">
-      <select id="autoCloseUnit">
-        <option value="minutes">分</option>
-        <option value="hours">時間</option>
-        <option value="days">日</option>
-      </select>
-    </label>
-    <div class="desc">
-      15 分ごとに確認し、最後にアクティブにしてからこの期間が経ったタブを閉じます（最短 15 分）。閉じたタブは管理パネルの「閉じたタブ」（最大 500 件）や Chrome の履歴から開き直せます。
-      固定タブ・音声再生中のタブ・各ウィンドウのアクティブなタブ・seiton 自身のページは対象外で、ウィンドウの最後の 1 枚は閉じません。
-      閉じたタブはワークスペースの保存内容からも外れます。ワークスペースごとに、管理パネルの ✎ で上書きできます。
-    </div>
-  </div>
-  <div class="field">
-    <div class="exclude-title">除外する URL</div>
-    <div class="desc exclude-desc">
-      ここに登録した URL のタブは、期間が過ぎても閉じません。1 行に 1 件。管理パネルの「開いているタブ」の 🛡 からも追加できます。書き方:
-      <code>github.com</code>（サイト全体。サブドメインも含む）、<code>mail.google.com/mail</code>（ホスト + パスの先頭）、
-      <code>https://example.com/docs</code>（URL の先頭）。<code>*</code> は任意の文字列（例: <code>*.example.com</code>、<code>example.com/*/edit</code>）。
-    </div>
-    <div id="excludeList" class="exclude-list"></div>
-    <form id="excludeAdd" class="row">
-      <input id="excludePattern" type="text" class="grow" placeholder="例: github.com / mail.google.com/mail / https://example.com/docs" autocomplete="off">
-      <button type="submit">追加</button>
-    </form>
-  </div>
+      <section class="sec" id="sec-memory" data-section="memory">
+        <h2>メモリ</h2>
+        <p class="sec-lead">タブのメモリ使用を抑える設定です。基本は Chrome 標準のメモリセーバーに任せ、ここは既定のままがおすすめです。</p>
+        <div class="field">
+          <label><input id="lazyRestore" type="checkbox"> ワークスペースを開く時、アクティブ以外のタブを読み込まない（遅延読み込み）</label>
+          <div class="desc">タブはタブバーに表示されたまま、クリックした時点で読み込まれます。推奨: ON</div>
+        </div>
+        <div class="field">
+          <label>非アクティブな状態が <input id="autoDiscardMinutes" type="number" min="0" step="5"> 分続いたタブを自動で休止（0 = 無効）</label>
+          <div class="desc">
+            通常は Chrome 標準の「メモリセーバー」（<a href="#" id="openPerf">chrome://settings/performance</a>）に任せるのがおすすめです。
+            メモリセーバーはメモリ逼迫度やタブの状態（フォーム入力中・音声再生中など）を考慮して休止するため、こちらは「確実に N 分で休止させたい」場合だけ使ってください。固定タブと音声再生中のタブは対象外です。
+            今すぐ休止したいときは、管理パネルの ☰ 管理 → 「非アクティブなタブを休止」。
+          </div>
+        </div>
+      </section>
 
-  <h2>セッション（Cookie / ログイン状態の分離）</h2>
-  <div class="field">
-    <label><input id="cookieIsolation" type="checkbox"> セッションごとに Cookie（ログイン状態）を分ける</label>
-    <div class="desc">
-      ON にすると、別のセッションを使うワークスペースに切り替えるとき、今の Cookie をそのセッション用に退避してすべて消し、切替先のセッションの Cookie を復元します
-      （Chrome のプロファイルを切り替えるのに近い動き）。同じサイトに別のアカウントでログインしたままセッションごとに使い分けられます。
-      Chrome 全体で同時に使えるセッションは 1 つで、切替は他のウィンドウにも及びます（別のセッションのワークスペースを開いているウィンドウは、次の読み込みから切替先のログイン状態になります）。
-      Cookie を読み書きする権限（すべてのサイト）が必要で、ON にするときに Chrome が確認を出します。localStorage などサイト側の他の保存領域は分けません。
-      退避した Cookie はこの拡張の保存領域（<code>chrome.storage.local</code>）に平文で保存され、エクスポートには含まれません。
-    </div>
-  </div>
-  <div class="field" id="cookieEnableField">
-    <label>今 Chrome にあるログイン状態はどのセッションのもの？ <select id="cookieSession"></select></label>
-    <div class="desc">ON にした時点の Cookie をこのセッションのものとして扱います。他のセッションは空（未ログイン）の状態から始まり、そのセッションのワークスペースでログインすると、以後そのセッション用に保たれます。</div>
-  </div>
-  <div id="cookieStatus" class="cookie-status"></div>
-  <div class="row">
-    <span id="clearCookieSlot"></span>
-    <span class="muted small">退避した Cookie だけを消します（今 Chrome に入っている Cookie は消しません）。OFF にしても退避した Cookie は残り、再度 ON にすれば続きから使えます。</span>
-  </div>
+      <section class="sec" id="sec-autoclose" data-section="autoclose">
+        <h2>タブの自動クローズ</h2>
+        <p class="sec-lead">長期間使っていないタブを、休止ではなく閉じる機能です。既定は OFF。</p>
+        <div class="field">
+          <label><input id="autoCloseEnabled" type="checkbox"> 長期間使っていないタブを自動で閉じる</label>
+        </div>
+        <div class="field">
+          <label>最後に使ってから <input id="autoCloseValue" type="number" min="1" step="1" style="width: 5em">
+            <select id="autoCloseUnit">
+              <option value="minutes">分</option>
+              <option value="hours">時間</option>
+              <option value="days">日</option>
+            </select>
+          </label>
+          <div class="desc">
+            15 分ごとに確認し、最後にアクティブにしてからこの期間が経ったタブを閉じます（最短 15 分）。閉じたタブは管理パネルの ☰ 管理 → 「閉じたタブ」（最大 500 件）や Chrome の履歴から開き直せます。
+            固定タブ・音声再生中のタブ・各ウィンドウのアクティブなタブ・seiton 自身のページは対象外で、ウィンドウの最後の 1 枚は閉じません。
+            閉じたタブはワークスペースの保存内容からも外れます。ワークスペースごとに、管理パネルの ✎ や「ワークスペースの管理」で上書きできます。
+          </div>
+        </div>
 
-  <h2>ブックマーク</h2>
-  <div class="field">
-    <label><input id="routeBookmarks" type="checkbox"> Ctrl+D / ☆ で追加したブックマークを、現在のワークスペースのフォルダへ自動で移動する</label>
-    <div class="desc">現在のウィンドウのアクティブなタブと同じ URL のブックマークだけが対象です（同期やインポートで作られたものは移動しません）。</div>
-  </div>
-  <div class="field">
-    <label>ワークスペース用フォルダの親フォルダ名（「その他のブックマーク」直下） <input id="bookmarkRootName" type="text"></label>
-  </div>
+        <h3>除外する URL</h3>
+        <div class="field">
+          <div class="desc exclude-desc">
+            ここに登録した URL のタブは、期間が過ぎても閉じません。1 行に 1 件。管理パネルの「開いているタブ」の 🛡 からも追加できます。書き方:
+            <code>github.com</code>（サイト全体。サブドメインも含む）、<code>mail.google.com/mail</code>（ホスト + パスの先頭）、
+            <code>https://example.com/docs</code>（URL の先頭）。<code>*</code> は任意の文字列（例: <code>*.example.com</code>、<code>example.com/*/edit</code>）。
+          </div>
+          <div id="excludeList" class="exclude-list"></div>
+          <form id="excludeAdd" class="row">
+            <input id="excludePattern" type="text" class="grow" placeholder="例: github.com / mail.google.com/mail / https://example.com/docs" autocomplete="off">
+            <button type="submit">追加</button>
+          </form>
+        </div>
 
-  <h2>ショートカット</h2>
-  <ul id="commands"></ul>
-  <button id="openShortcuts">ショートカットを変更（chrome://extensions/shortcuts）</button>
+        <h3>閉じたタブの履歴</h3>
+        <div class="row">
+          <span id="clearClosedSlot"></span>
+          <span class="muted small" id="closedCount"></span>
+        </div>
+        <div class="desc exclude-desc">自動クローズで閉じたタブの履歴（最大 500 件）です。開き直すには管理パネルの ☰ 管理 → 「閉じたタブ」。エクスポート / インポートの対象外です。</div>
+      </section>
 
-  <h2>バックアップ</h2>
-  <div class="row">
-    <button id="export">エクスポート（JSON）</button>
-    <label class="row"><button id="importBtn">インポート</button><input id="importFile" type="file" accept="application/json" hidden></label>
-  </div>
-  <p class="muted small">インポートすると現在のワークスペース・セッション設定はすべて置き換わります（ブックマークそのものは含まれません）。自動クローズで閉じたタブの履歴はエクスポート / インポートの対象外です。</p>
-  <div class="row">
-    <span id="clearClosedSlot"></span>
-    <span class="muted small" id="closedCount"></span>
+      <section class="sec" id="sec-session" data-section="session">
+        <h2>セッション（Cookie / ログイン状態の分離）</h2>
+        <p class="sec-lead">セッションの追加・名前変更・削除は管理パネルの ☰ 管理 → 「セッションの管理」で行います。ここでは Cookie の分離を設定します。</p>
+        <div class="field">
+          <label><input id="cookieIsolation" type="checkbox"> セッションごとに Cookie（ログイン状態）を分ける</label>
+          <div class="desc">
+            ON にすると、別のセッションを使うワークスペースに切り替えるとき、今の Cookie をそのセッション用に退避してすべて消し、切替先のセッションの Cookie を復元します
+            （Chrome のプロファイルを切り替えるのに近い動き）。同じサイトに別のアカウントでログインしたままセッションごとに使い分けられます。
+            Chrome 全体で同時に使えるセッションは 1 つで、切替は他のウィンドウにも及びます（別のセッションのワークスペースを開いているウィンドウは、次の読み込みから切替先のログイン状態になります）。
+            Cookie を読み書きする権限（すべてのサイト）が必要で、ON にするときに Chrome が確認を出します。localStorage などサイト側の他の保存領域は分けません。
+            退避した Cookie はこの拡張の保存領域（<code>chrome.storage.local</code>）に平文で保存され、エクスポートには含まれません。
+          </div>
+        </div>
+        <div class="field" id="cookieEnableField">
+          <label>今 Chrome にあるログイン状態はどのセッションのもの？ <select id="cookieSession"></select></label>
+          <div class="desc">ON にした時点の Cookie をこのセッションのものとして扱います。他のセッションは空（未ログイン）の状態から始まり、そのセッションのワークスペースでログインすると、以後そのセッション用に保たれます。</div>
+        </div>
+        <div id="cookieStatus" class="cookie-status"></div>
+        <div class="row">
+          <span id="clearCookieSlot"></span>
+          <span class="muted small">退避した Cookie だけを消します（今 Chrome に入っている Cookie は消しません）。OFF にしても退避した Cookie は残り、再度 ON にすれば続きから使えます。</span>
+        </div>
+      </section>
+
+      <section class="sec" id="sec-bookmarks" data-section="bookmarks">
+        <h2>ブックマーク</h2>
+        <p class="sec-lead">ワークスペースに接続したブックマークフォルダの扱いです。</p>
+        <div class="field">
+          <label><input id="routeBookmarks" type="checkbox"> Ctrl+D / ☆ で追加したブックマークを、現在のワークスペースのフォルダへ自動で移動する</label>
+          <div class="desc">現在のウィンドウのアクティブなタブと同じ URL のブックマークだけが対象です（同期やインポートで作られたものは移動しません）。</div>
+        </div>
+        <div class="field">
+          <label>ワークスペース用フォルダの親フォルダ名（「その他のブックマーク」直下） <input id="bookmarkRootName" type="text"></label>
+        </div>
+      </section>
+
+      <section class="sec" id="sec-shortcuts" data-section="shortcuts">
+        <h2>ショートカット</h2>
+        <p class="sec-lead">現在この Chrome に割り当てられているキーです。</p>
+        <ul id="commands"></ul>
+        <button id="openShortcuts">ショートカットを変更（chrome://extensions/shortcuts）</button>
+      </section>
+
+      <section class="sec" id="sec-backup" data-section="backup">
+        <h2>バックアップ</h2>
+        <p class="sec-lead">ワークスペース・セッション・設定を JSON で保存 / 復元します。</p>
+        <div class="row">
+          <button id="export">エクスポート（JSON）</button>
+          <label class="row"><button id="importBtn">インポート</button><input id="importFile" type="file" accept="application/json" hidden></label>
+        </div>
+        <p class="muted small">インポートすると現在のワークスペース・セッション設定はすべて置き換わります（ブックマークそのものは含まれません）。自動クローズで閉じたタブの履歴と、退避した Cookie・Cookie の分離の ON / OFF はエクスポート / インポートの対象外です。</p>
+      </section>
+    </main>
   </div>
 
   <script type="module" src="options.js"></script>

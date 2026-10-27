@@ -331,7 +331,7 @@ function renderEditor(ws) {
     h('div', { class: 'row' }, h('span', { class: 'edit-label' }, 'アイコン'), icon),
     h('label', {}, h('span', {}, '使うセッション'), session),
     cookieInfo && !(cookieInfo.enabled && cookieInfo.permitted)
-      ? h('div', { class: 'muted small', style: { margin: '-4px 0 4px' } }, 'Cookie の分離は OFF（セッションはラベルだけ）。ヘッダーの「セッション」から ON にできます')
+      ? h('div', { class: 'muted small', style: { margin: '-4px 0 4px' } }, 'Cookie の分離は OFF（セッションはラベルだけ）。☰ 管理 → 「セッションの管理」から ON にできます')
       : null,
     h('label', {}, h('span', {}, 'ブックマーク'), folderSel),
     h('label', { title: '長期間使っていないタブを自動で閉じるか（設定画面の値をこのワークスペースだけ上書き）' }, h('span', {}, '自動クローズ'), acMode),
@@ -832,7 +832,13 @@ $('sessionAdd').addEventListener('submit', (e) => {
 let closedTabs = []; // 新しい順（storage.local の closedTabs）
 
 function updateClosedCount() {
-  $('closedTabs').textContent = closedTabs.length ? `閉じたタブ (${closedTabs.length})` : '閉じたタブ';
+  const n = closedTabs.length;
+  $('closedLabel').textContent = n ? `閉じたタブ (${n})` : '閉じたタブ';
+  // ☰ 管理ボタンにも件数を出す（メニューを開かなくても分かるように）
+  const badge = $('menuBadge');
+  badge.hidden = !n;
+  badge.textContent = String(n);
+  badge.title = `自動クローズで閉じたタブ: ${n} 件`;
 }
 
 async function loadClosedTabs() {
@@ -1324,6 +1330,33 @@ async function loadFolders() {
   render();
 }
 
+// ---- ヘッダーの ☰ 管理メニュー（issue #23）: ワークスペース / セッション / タブ / 設定・使い方 を 1 つにまとめる ----
+
+function menuOpen() {
+  return !$('menu').hidden;
+}
+
+function setMenu(open) {
+  $('menu').hidden = !open;
+  $('menuBtn').setAttribute('aria-expanded', String(open));
+  $('menuBtn').classList.toggle('on', open);
+  if (open) $('menu').querySelector('button')?.focus();
+}
+
+$('menuBtn').addEventListener('click', () => setMenu(!menuOpen()));
+// 項目を押したら閉じる（各項目の処理は対象のボタンに直接付いたリスナーが先に走る）
+$('menu').addEventListener('click', (e) => { if (e.target.closest('button')) setMenu(false); });
+$('menuCreate').addEventListener('click', () => openCreateDialog());
+document.addEventListener('mousedown', (e) => { if (menuOpen() && !e.target.closest('.menu-wrap')) setMenu(false); });
+// ↑↓ で項目を移動
+$('menu').addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const items = [...$('menu').querySelectorAll('button:not([disabled])')];
+  const i = items.indexOf(document.activeElement);
+  e.preventDefault();
+  items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+});
+
 $('discard').addEventListener('click', () => attempt(async () => {
   const n = await call('discardInactive', { windowId });
   toast(`${n} 個のタブを休止しました`);
@@ -1533,6 +1566,7 @@ document.addEventListener('keydown', (e) => {
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
   if (document.querySelector('dialog[open]')) return;
   e.preventDefault();
+  setMenu(false);
   $('search').focus();
   $('search').select();
 });
@@ -1547,7 +1581,7 @@ document.addEventListener('keydown', (e) => {
   const t = e.target;
   const editable = t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
   if (editable && !(t === $('search') && !t.value)) return;
-  if (editingId || document.querySelector('dialog[open]')) return;
+  if (editingId || menuOpen() || document.querySelector('dialog[open]')) return;
   const id = data?.state?.workspaceOrder[index];
   if (!id) return;
   e.preventDefault();
@@ -1565,6 +1599,11 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return;
   if (document.querySelector('dialog[open]')) return; // ダイアログは Esc で閉じる（ブラウザ既定の動作）
   e.preventDefault();
+  if (menuOpen()) {
+    setMenu(false);
+    $('menuBtn').focus();
+    return;
+  }
   if (editingId) {
     editingId = null;
     // 入力欄にフォーカスがあると描画が後回しになるので外す

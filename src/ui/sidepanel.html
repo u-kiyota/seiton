@@ -11,10 +11,22 @@
   <header class="appbar">
     <div class="brand"><img src="../../icons/logo.png" alt="" width="40" height="40">seiton</div>
     <span class="grow"></span>
-    <button id="manage" title="ワークスペースの管理（切り替えずに一覧で編集・一括変更・並び替え・削除）">ワークスペース管理</button>
-    <button id="closedTabs" title="自動クローズで閉じたタブの履歴（クリックで開き直せます）">閉じたタブ</button>
-    <button id="sessions" title="セッション（ワークスペースごとに使うアカウント / ログイン状態のラベル）を管理">セッション</button>
-    <button id="discard" title="このウィンドウの非アクティブなタブのメモリを解放（タブは残ります）">非アクティブなタブを休止</button>
+    <div class="menu-wrap">
+      <button id="menuBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="管理メニュー（ワークスペース / セッション / タブ / 設定 / 使い方）">☰ 管理<span id="menuBadge" class="badge" hidden></span></button>
+      <div id="menu" class="menu" role="menu" hidden>
+        <div class="menu-sec">ワークスペース</div>
+        <button id="menuCreate" type="button" role="menuitem">＋ 新しいワークスペース<span class="menu-sub">名前・アイコン・セッション・ブックマークフォルダを決めて作成</span></button>
+        <button id="manage" type="button" role="menuitem">ワークスペースの管理<span class="menu-sub">切り替えずに一覧で編集・一括変更・並び替え・削除</span></button>
+        <div class="menu-sec">セッション</div>
+        <button id="sessions" type="button" role="menuitem">セッションの管理<span class="menu-sub">追加・名前変更・削除・全て開く・Cookie の分離</span></button>
+        <div class="menu-sec">タブ</div>
+        <button id="closedTabs" type="button" role="menuitem"><span id="closedLabel">閉じたタブ</span><span class="menu-sub">自動クローズで閉じたタブの履歴から開き直す</span></button>
+        <button id="discard" type="button" role="menuitem">非アクティブなタブを休止<span class="menu-sub">このウィンドウの使っていないタブのメモリを解放（タブは残ります）</span></button>
+        <div class="menu-sec">その他</div>
+        <button id="options" type="button" role="menuitem">⚙ 設定<span class="menu-sub">表示 / メモリ / 自動クローズ / セッション / ブックマーク / ショートカット / バックアップ</span></button>
+        <button id="guide" type="button" role="menuitem">? 使い方<span class="menu-sub">使い方ページを開く</span></button>
+      </div>
+    </div>
   </header>
 
   <div class="searchbar">
@@ -32,10 +44,6 @@
         <button id="createOpen" class="icon plus" type="button" title="新しいワークスペースを作成">＋</button>
       </div>
       <div id="list" class="col-body"></div>
-      <div class="col-foot">
-        <button id="options" type="button" title="設定（メモリ / 自動クローズ / ブックマーク / ショートカット / バックアップ）を開く">⚙ 設定</button>
-        <button id="guide" type="button" title="使い方ページを開く">? 使い方</button>
-      </div>
     </aside>
 
     <div class="stage">

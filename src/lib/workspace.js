@@ -2,7 +2,7 @@
 // ここの関数は serialize() の中から呼ばれる前提（内部で serialize を呼ばない＝デッドロック防止）。
 import {
   uid, COLORS, normalizeIcon, snapshotTabs, tabUrl, isBlankUrl, isRestorableUrl, isWorkspaceTabUrl,
-  matchWindowsToWorkspaces, missingTabs, planRestore, workspacesUsingSession, normalizeAutoCloseOverride,
+  matchWindowsToWorkspaces, missingTabs, planRestore, workspacesUsingSession, normalizeAutoCloseOverride, moveInOrder,
 } from './core.js';
 import { loadState, saveState, mutate, getBindings, setBinding, clearBindings, windowForWorkspace } from './store.js';
 import { enqueueDiscard, cancelDiscard } from './memory.js';
@@ -374,14 +374,42 @@ export async function updateWorkspace(id, patch) {
   return { cookieSession };
 }
 
-/** 全体の並び順の中で位置を変える */
+/** 全体の並び順の中で位置を変える（toIndex は id を除いた並びでの位置） */
 export async function reorderWorkspace(id, toIndex) {
   await mutate((state) => {
     if (!state.workspaces[id]) return;
-    const list = state.workspaceOrder.filter((w) => w !== id);
-    list.splice(Math.max(0, Math.min(toIndex, list.length)), 0, id);
-    state.workspaceOrder = list;
+    state.workspaceOrder = moveInOrder(state.workspaceOrder, id, toIndex);
   });
+}
+
+/**
+ * 複数のワークスペースに同じ変更をまとめて適用する（管理ダイアログの一括変更。issue #25）。
+ * 1 件ずつ updateWorkspace を通すので、名前変更によるフォルダ名の追従やセッション変更時の Cookie 入れ替えも同じように働く。
+ * 戻り値: 適用した件数と、Cookie を入れ替えた場合はその最後の結果
+ */
+export async function updateWorkspaces(ids, patch) {
+  let count = 0;
+  let cookieSession = null;
+  for (const id of [...new Set(ids || [])]) {
+    const state = await loadState();
+    if (!state.workspaces[id]) continue;
+    const res = await updateWorkspace(id, patch);
+    count++;
+    if (res?.cookieSession) cookieSession = res.cookieSession;
+  }
+  return { count, cookieSession };
+}
+
+/** 複数のワークスペースをまとめて削除する（管理ダイアログ。issue #25）。戻り値: 削除した件数 */
+export async function deleteWorkspaces(ids) {
+  let count = 0;
+  for (const id of [...new Set(ids || [])]) {
+    const state = await loadState();
+    if (!state.workspaces[id]) continue;
+    await deleteWorkspace(id);
+    count++;
+  }
+  return { count };
 }
 
 /** ワークスペースを削除。開いているウィンドウのタブは閉じずに「未割り当て」にする。ブックマークは消さない */

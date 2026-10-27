@@ -11,6 +11,7 @@
   <header class="appbar">
     <div class="brand"><img src="../../icons/logo.png" alt="" width="40" height="40">seiton</div>
     <span class="grow"></span>
+    <button id="manage" title="ワークスペースの管理（切り替えずに一覧で編集・一括変更・並び替え・削除）">ワークスペース管理</button>
     <button id="closedTabs" title="自動クローズで閉じたタブの履歴（クリックで開き直せます）">閉じたタブ</button>
     <button id="sessions" title="セッション（ワークスペースごとに使うアカウント / ログイン状態のラベル）を管理">セッション</button>
     <button id="discard" title="このウィンドウの非アクティブなタブのメモリを解放（タブは残ります）">非アクティブなタブを休止</button>
@@ -135,6 +136,29 @@
         <button type="submit" class="primary">除外リストに追加</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="manageDialog">
+    <div class="dlg-head">
+      <span class="grow">ワークスペースの管理</span>
+      <button type="button" class="icon" id="manageClose" title="閉じる">×</button>
+    </div>
+    <div class="dlg-body">
+      <div class="muted small">切り替えずに、すべてのワークスペースをここで編集できます。名前・セッション・自動クローズは行で変えるとすぐ保存され、▼ で色とアイコンを開きます。左端の ⋮⋮ をドラッグすると並び替え（左の一覧でも行をドラッグできます）。チェックを入れた行には下の一括変更を適用します。ブックマークフォルダの接続はワークスペースの ✎ から。</div>
+      <div class="row">
+        <label class="check"><input id="manageAll" type="checkbox"> すべて選択</label>
+        <span id="manageCount" class="muted small grow"></span>
+      </div>
+      <div id="manageList"></div>
+      <div class="mg-bulk">
+        <span class="mg-bulk-title">チェックした行を一括変更:</span>
+        <span class="group"><span class="label">セッション</span><select id="bulkSession"></select><button type="button" id="bulkSessionApply">適用</button></span>
+        <span class="group"><span class="label">色</span><select id="bulkColor"></select><button type="button" id="bulkColorApply">適用</button></span>
+        <span class="group"><span class="label">自動クローズ</span><span id="bulkAutoCloseSlot"></span><button type="button" id="bulkAutoCloseApply">適用</button></span>
+        <span class="grow"></span>
+        <span id="bulkDeleteSlot"></span>
+      </div>
+    </div>
   </dialog>
 
   <script type="module" src="sidepanel.js"></script>

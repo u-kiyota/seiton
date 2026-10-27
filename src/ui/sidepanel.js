@@ -3,6 +3,7 @@ import {
   TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl, workspaceHotkey, hotkeyToIndex,
   autoCloseDaysFrom, autoCloseDuration, formatAutoCloseDuration, AUTO_CLOSE_UNIT_LABELS,
   CLOSED_TABS_MAX, closedDayLabel, formatClockTime, autoCloseExcludeMatch, excludePatternsForUrl,
+  WORKSPACE_DRAG_TYPE, parseWorkspaceDragData, dropPlacement, reorderDropIndex,
 } from '../lib/core.js';
 import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt, confirmButton } from './api.js';
 
@@ -364,7 +365,11 @@ function renderList() {
       h('span', { class: 'muted small', title: '保存されているタブ数' }, `${ws.tabs.length}`),
     );
     makeTabDropTarget(head, () => data.state?.workspaces[id] || null);
-    return h('div', { class: `ws${here ? ' current' : ''}${selectedId === id ? ' sel' : ''}` }, head);
+    // 行をドラッグして並び替え（issue #25）。落とす位置の線は行の外枠（.ws）に出す
+    const wrap = h('div', { class: `ws${here ? ' current' : ''}${selectedId === id ? ' sel' : ''}` }, head);
+    makeWorkspaceDraggable(head, id);
+    makeWorkspaceDropTarget(head, id, wrap);
+    return wrap;
   }));
 }
 
@@ -889,6 +894,309 @@ $('excludeForm').addEventListener('submit', (e) => {
   });
 });
 
+// ---- ワークスペースの並び替え: ドラッグ＆ドロップ（issue #25） ----
+
+// ドラッグ中のワークスペース ID。dragover 中は dataTransfer の中身が読めないので控えておく
+let draggingWsId = null;
+
+function hasWorkspaceDrag(e) {
+  return !!e.dataTransfer && [...e.dataTransfer.types].includes(WORKSPACE_DRAG_TYPE);
+}
+
+function clearReorderMarks() {
+  for (const el of document.querySelectorAll('.drop-before, .drop-after')) el.classList.remove('drop-before', 'drop-after');
+}
+
+/**
+ * el をワークスペース id のドラッグ元にする。handle を渡すとそこを押した時だけドラッグできる（入力欄のある行用）。
+ * ドラッグを始めた行の click（切替）は 1 回だけ無視する
+ */
+function makeWorkspaceDraggable(el, id, handle = null) {
+  if (handle) {
+    el.draggable = false;
+    handle.addEventListener('mousedown', () => { el.draggable = true; });
+    handle.addEventListener('mouseup', () => { el.draggable = false; });
+  } else {
+    el.draggable = true;
+  }
+  el.addEventListener('dragstart', (e) => {
+    suppressRowClick = true;
+    draggingWsId = id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData(WORKSPACE_DRAG_TYPE, JSON.stringify({ id }));
+    el.classList.add('dragging');
+  });
+  // ドラッグ直後に click が届いても切替しない（タブの行と同じ仕組み）
+  el.addEventListener('click', (e) => {
+    if (!suppressRowClick) return;
+    suppressRowClick = false;
+    e.stopImmediatePropagation();
+  }, true);
+  el.addEventListener('dragend', () => {
+    draggingWsId = null;
+    el.classList.remove('dragging');
+    if (handle) el.draggable = false;
+    clearReorderMarks();
+  });
+  return el;
+}
+
+/** ドロップ位置（行の前 / 後）から並び替え先の index を求める。並びが変わらないなら null */
+function reorderTargetIndex(e, el, draggedId, targetId) {
+  const r = el.getBoundingClientRect();
+  return reorderDropIndex(data.state?.workspaceOrder || [], draggedId, targetId, dropPlacement(e.clientY - r.top, r.height));
+}
+
+/**
+ * el をワークスペース id の行として、他のワークスペースのドロップ先にする。
+ * 上半分に落とすとその行の前、下半分なら後ろへ。印（線）は mark（省略時は el）に付ける
+ */
+function makeWorkspaceDropTarget(el, id, mark = el) {
+  el.addEventListener('dragover', (e) => {
+    if (!hasWorkspaceDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const r = el.getBoundingClientRect();
+    const placement = dropPlacement(e.clientY - r.top, r.height);
+    const toIndex = draggingWsId ? reorderTargetIndex(e, el, draggingWsId, id) : null;
+    mark.classList.toggle('drop-before', toIndex !== null && placement === 'before');
+    mark.classList.toggle('drop-after', toIndex !== null && placement === 'after');
+  });
+  el.addEventListener('dragleave', (e) => {
+    if (e.relatedTarget && el.contains(e.relatedTarget)) return;
+    mark.classList.remove('drop-before', 'drop-after');
+  });
+  el.addEventListener('drop', (e) => {
+    if (!hasWorkspaceDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    clearReorderMarks();
+    const dragged = parseWorkspaceDragData((t) => e.dataTransfer.getData(t));
+    if (!dragged) return;
+    const toIndex = reorderTargetIndex(e, el, dragged, id);
+    if (toIndex === null) return;
+    attempt(() => call('reorderWorkspace', { id: dragged, toIndex }));
+  });
+  return el;
+}
+
+// ---- モーダル: ワークスペースの管理（一覧で編集・一括変更・並び替え・削除。issue #25） ----
+
+const manageSelected = new Set(); // チェックを入れたワークスペース ID
+let manageExpandId = null; // 「外観」（色・アイコン）を開いている行
+
+/** 行ごとの「自動クローズ」: 設定に従う（null）/ 無効 / 有効（期間） */
+function autoCloseControls(ws, { onSave, inline = true }) {
+  const { state } = data;
+  const globalAc = state.settings.autoClose || { enabled: false, days: 7 };
+  const ac = ws?.autoClose || null;
+  const acDaysValue = ac?.days ?? globalAc.days;
+  const mode = h('select', { title: 'タブの自動クローズ（設定画面の値をこのワークスペースだけ上書き）' },
+    h('option', { value: '', selected: !ac }, `設定に従う（${globalAc.enabled ? `有効・${formatAutoCloseDuration(globalAc.days)}` : '無効'}）`),
+    h('option', { value: 'off', selected: !!ac && !ac.enabled }, '無効'),
+    h('option', { value: 'on', selected: !!ac?.enabled }, '有効'));
+  const dur = autoCloseDuration(acDaysValue);
+  const value = h('input', { type: 'number', min: '1', step: '1', value: String(dur.value), style: { width: '64px' }, title: '閉じるまでの期間（最後に使ってから）' });
+  const unit = h('select', { title: '単位' }, ...Object.entries(AUTO_CLOSE_UNIT_LABELS).map(([v, label]) =>
+    h('option', { value: v, selected: v === dur.unit }, label)));
+  const durationBox = h('span', { class: 'row ac-duration', hidden: !ac?.enabled }, value, unit);
+  const read = () => {
+    if (!mode.value) return null;
+    if (mode.value === 'off') return { enabled: false, days: acDaysValue };
+    const days = autoCloseDaysFrom(value.value, unit.value);
+    if (days === null) {
+      toast('期間は 15 分以上で入力してください', true);
+      value.value = String(dur.value);
+      unit.value = dur.unit;
+      return undefined;
+    }
+    return { enabled: true, days };
+  };
+  const commit = () => {
+    const v = read();
+    if (v !== undefined) onSave(v);
+  };
+  mode.addEventListener('change', () => {
+    durationBox.hidden = mode.value !== 'on';
+    // フォーカスが残っていると一覧の描き直しが後回しになるので外す
+    if (inline) mode.blur();
+    commit();
+  });
+  value.addEventListener('change', commit);
+  unit.addEventListener('change', commit);
+  return { box: h('span', { class: 'row ac-controls' }, mode, durationBox), read };
+}
+
+function manageRow(ws, index) {
+  const { state, bindings } = data;
+  const here = bindings[windowId] === ws.id;
+  const openIn = windowOf(ws.id);
+  const save = (patch) => attempt(() => call('updateWorkspace', { id: ws.id, patch }));
+
+  const grip = h('span', { class: 'mg-grip', title: 'ドラッグで並び替え' }, '⋮⋮');
+  const check = h('input', { type: 'checkbox', checked: manageSelected.has(ws.id), title: '一括変更の対象にする' });
+  check.addEventListener('change', () => {
+    if (check.checked) manageSelected.add(ws.id); else manageSelected.delete(ws.id);
+    syncManageBulk();
+  });
+  const look = h('button', {
+    type: 'button', class: 'icon mg-look', title: '色・アイコンを変更',
+    onclick: () => { manageExpandId = manageExpandId === ws.id ? null : ws.id; renderManageDialog(); },
+  }, wsIcon(ws), h('span', { class: 'muted small' }, manageExpandId === ws.id ? '▲' : '▼'));
+  const name = h('input', { type: 'text', class: 'mg-name', value: ws.name, title: '名前（Enter または他へ移動で保存）' });
+  name.addEventListener('change', () => {
+    const v = name.value.trim();
+    if (!v) { name.value = ws.name; return; }
+    save({ name: v });
+  });
+  const session = h('select', { class: 'mg-session', title: '使うセッション' }, state.sessionOrder.map((id) =>
+    h('option', { value: id, selected: id === ws.sessionId }, state.sessions[id].name)));
+  session.addEventListener('change', () => {
+    session.blur();
+    attempt(async () => {
+      const res = await call('updateWorkspace', { id: ws.id, patch: { sessionId: session.value } });
+      if (res?.cookieSession) toast(`「${ws.name}」のセッションを変え、Cookie を入れ替えてページを読み込み直しました`);
+    });
+  });
+  const ac = autoCloseControls(ws, { onSave: (autoClose) => save({ autoClose }) });
+  const status = here ? h('span', { class: 'badge here', title: 'このウィンドウで開いています' }, 'ここ')
+    : openIn != null ? h('span', { class: 'badge', title: '別ウィンドウで開いています' }, '別') : null;
+  const del = confirmButton('削除', '本当に削除？', () => attempt(async () => {
+    await call('deleteWorkspace', { id: ws.id });
+    manageSelected.delete(ws.id);
+    if (selectedId === ws.id) selectedId = null;
+    if (editingId === ws.id) editingId = null;
+    toast(`「${ws.name}」を削除しました（ブックマークフォルダは残っています）`);
+  }), { class: 'danger icon', title: '削除（ブックマークフォルダは残ります）' });
+
+  const row = h('div', { class: `mg-row${manageSelected.has(ws.id) ? ' sel' : ''}` },
+    grip,
+    check,
+    h('span', { class: 'badge hotkey', title: '一覧での番号' }, workspaceHotkey(index) || String(index + 1)),
+    look,
+    name,
+    session,
+    ac.box,
+    h('span', { class: 'muted small mg-tabs', title: '保存されているタブ数' }, `${ws.tabs.length} タブ`),
+    status,
+    del,
+  );
+  makeWorkspaceDraggable(row, ws.id, grip);
+  makeWorkspaceDropTarget(row, ws.id);
+  if (manageExpandId !== ws.id) return [row];
+
+  const colors = h('div', { class: 'colors' }, COLORS.map((c) => h('span', {
+    class: 'dot' + (c === ws.color ? ' sel' : ''), title: c, style: { background: COLOR_HEX[c] },
+    onclick: () => save({ color: c }),
+  })));
+  const icon = iconPicker(ws.icon, (v) => save({ icon: v }));
+  const expand = h('div', { class: 'mg-expand' },
+    h('div', { class: 'row' }, h('span', { class: 'edit-label' }, '色'), colors),
+    h('div', { class: 'row' }, h('span', { class: 'edit-label' }, 'アイコン'), icon),
+  );
+  return [row, expand];
+}
+
+/** 一括変更バーの件数表示・ボタンの有効 / 無効 */
+function syncManageBulk() {
+  const n = [...manageSelected].filter((id) => data.state?.workspaces[id]).length;
+  const total = data.state?.workspaceOrder.length || 0;
+  $('manageCount').textContent = n ? `${n} 件を選択中` : 'チェックした行に下の一括変更を適用します';
+  $('manageAll').checked = total > 0 && n === total;
+  $('manageAll').indeterminate = n > 0 && n < total;
+  for (const el of $('manageDialog').querySelectorAll('.mg-bulk button, .mg-bulk select, .mg-bulk input')) {
+    if (el.id !== 'manageAll') el.disabled = !n;
+  }
+  for (const row of $('manageList').querySelectorAll('.mg-row')) {
+    const cb = row.querySelector('input[type=checkbox]');
+    row.classList.toggle('sel', !!cb?.checked);
+  }
+}
+
+let bulkAutoClose = null; // 一括変更の「自動クローズ」コントロール（描画のたびに作り直す）
+
+function renderManageDialog() {
+  const { state } = data;
+  for (const id of [...manageSelected]) if (!state.workspaces[id]) manageSelected.delete(id);
+  if (manageExpandId && !state.workspaces[manageExpandId]) manageExpandId = null;
+
+  // 一括変更のセッション候補（選択中の値は保つ）
+  const bs = $('bulkSession');
+  const keepSession = bs.value;
+  bs.replaceChildren(h('option', { value: '' }, 'セッションを選択…'),
+    ...state.sessionOrder.map((id) => h('option', { value: id }, state.sessions[id].name)));
+  bs.value = state.sessions[keepSession] ? keepSession : '';
+  const bc = $('bulkColor');
+  if (!bc.options.length) {
+    bc.replaceChildren(h('option', { value: '' }, '色を選択…'),
+      ...COLORS.map((c) => h('option', { value: c, style: { color: COLOR_HEX[c] } }, `● ${c}`)));
+  }
+  // 自動クローズは行と同じコントロール（期間付き）。入力中の値を保つため、開いた時に 1 度だけ作る
+  if (!bulkAutoClose) {
+    bulkAutoClose = autoCloseControls({ autoClose: null }, { onSave: () => {}, inline: false });
+    $('bulkAutoCloseSlot').replaceChildren(bulkAutoClose.box);
+  }
+
+  const list = $('manageList');
+  if (!state.workspaceOrder.length) {
+    list.replaceChildren(h('div', { class: 'empty' }, 'ワークスペースがありません。'));
+  } else {
+    list.replaceChildren(...state.workspaceOrder.flatMap((id, index) => manageRow(state.workspaces[id], index)));
+  }
+  syncManageBulk();
+}
+
+/** チェックした行に patch を適用する */
+function bulkApply(patch, label) {
+  const ids = [...manageSelected].filter((id) => data.state.workspaces[id]);
+  if (!ids.length) { toast('変更する行にチェックを入れてください', true); return; }
+  attempt(async () => {
+    const res = await call('updateWorkspaces', { ids, patch });
+    toast(`${res.count} 件の${label}を変更しました${res.cookieSession ? '（Cookie を入れ替えてページを読み込み直しました）' : ''}`);
+  });
+}
+
+$('manage').addEventListener('click', () => {
+  manageExpandId = null;
+  bulkAutoClose = null;
+  renderManageDialog();
+  $('manageDialog').showModal();
+});
+$('manageClose').addEventListener('click', () => $('manageDialog').close());
+$('manageAll').addEventListener('change', () => {
+  const all = data.state?.workspaceOrder || [];
+  if ($('manageAll').checked) for (const id of all) manageSelected.add(id);
+  else manageSelected.clear();
+  for (const cb of $('manageList').querySelectorAll('.mg-row input[type=checkbox]')) cb.checked = $('manageAll').checked;
+  syncManageBulk();
+});
+$('bulkSessionApply').addEventListener('click', () => {
+  const sid = $('bulkSession').value;
+  if (!sid) { toast('セッションを選んでください', true); return; }
+  bulkApply({ sessionId: sid }, 'セッション');
+});
+$('bulkColorApply').addEventListener('click', () => {
+  const c = $('bulkColor').value;
+  if (!c) { toast('色を選んでください', true); return; }
+  bulkApply({ color: c }, '色');
+});
+$('bulkAutoCloseApply').addEventListener('click', () => {
+  const v = bulkAutoClose?.read();
+  if (v === undefined) return;
+  bulkApply({ autoClose: v }, '自動クローズ');
+});
+$('bulkDeleteSlot').append(confirmButton('選択を削除', '本当に削除？', () => {
+  const ids = [...manageSelected].filter((id) => data.state.workspaces[id]);
+  if (!ids.length) return;
+  attempt(async () => {
+    const res = await call('deleteWorkspaces', { ids });
+    for (const id of ids) manageSelected.delete(id);
+    if (ids.includes(selectedId)) selectedId = null;
+    if (ids.includes(editingId)) editingId = null;
+    toast(`${res.count} 件を削除しました（ブックマークフォルダは残っています）`);
+  });
+}, { title: 'チェックした行をまとめて削除（ブックマークフォルダは残ります）' }));
+
 // ---- 描画 ----
 
 let pendingRender = false;
@@ -896,7 +1204,8 @@ let pendingRender = false;
 function render() {
   if (!data.state) return;
   const a = document.activeElement;
-  if (a && ((a.tagName === 'INPUT' && a.type === 'text') || a.tagName === 'SELECT')) {
+  // 文字 / 数値の入力欄やセレクトを操作中は描き直さない（フォーカスが外れた時に描く）
+  if (a && ((a.tagName === 'INPUT' && (a.type === 'text' || a.type === 'number')) || a.tagName === 'SELECT')) {
     pendingRender = true;
     return;
   }
@@ -906,6 +1215,7 @@ function render() {
   renderBookmarks();
   renderTabs();
   if ($('sessionDialog').open) renderSessionDialog();
+  if ($('manageDialog').open) renderManageDialog();
 }
 
 document.addEventListener('focusout', () => {

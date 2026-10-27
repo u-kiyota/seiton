@@ -12,6 +12,7 @@ import {
   CLOSED_TABS_MAX, trimClosedTabs, closedTabEntry, closedDayLabel, formatClockTime,
   normalizeExcludePattern, normalizeExcludePatterns, matchesExcludePattern, autoCloseExcludeMatch, excludePatternsForUrl,
   cookieUrl, cookieSetDetails, cookieRemoveDetails, cookieKey, isExpiredCookie, dedupeCookies, normalizeCookieJar, cookieHosts,
+  WORKSPACE_DRAG_TYPE, parseWorkspaceDragData, moveInOrder, dropPlacement, reorderDropIndex,
 } from '../src/lib/core.js';
 
 // ---- セッションごとの Cookie の分離（issue #12） ----
@@ -749,4 +750,53 @@ test('normalizeState: autoCloseExclude の欠損・壊れた値を補い、既�
   assert.deepEqual(DEFAULT_SETTINGS.autoCloseExclude, []);
   assert.deepEqual(normalizeState({ settings: { autoCloseExclude: 'github.com' } }).settings.autoCloseExclude, []);
   assert.deepEqual(normalizeState({ settings: { autoCloseExclude: [' a ', 'a', 1, ''] } }).settings.autoCloseExclude, ['a']);
+});
+
+// ---- ワークスペースの並び替え（管理ダイアログ・ドラッグ＆ドロップ。issue #25） ----
+
+test('moveInOrder: id を除いた並びでの toIndex に差し込む。範囲外は端に丸め、無い id は無視', () => {
+  const order = ['a', 'b', 'c', 'd'];
+  assert.deepEqual(moveInOrder(order, 'a', 2), ['b', 'c', 'a', 'd']);
+  assert.deepEqual(moveInOrder(order, 'd', 0), ['d', 'a', 'b', 'c']);
+  assert.deepEqual(moveInOrder(order, 'b', 1), ['a', 'b', 'c', 'd'], '同じ位置なら変わらない');
+  assert.deepEqual(moveInOrder(order, 'a', 99), ['b', 'c', 'd', 'a']);
+  assert.deepEqual(moveInOrder(order, 'a', -5), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(moveInOrder(order, 'zzz', 1), ['a', 'b', 'c', 'd'], '無い id は何もしない');
+  assert.deepEqual(moveInOrder(order, 'c', undefined), ['a', 'b', 'd', 'c'], 'toIndex が無ければ末尾');
+  assert.deepEqual(order, ['a', 'b', 'c', 'd'], '元の配列は変えない');
+  assert.deepEqual(moveInOrder(undefined, 'a', 0), []);
+});
+
+test('dropPlacement: 行の上半分なら before、下半分なら after。高さが無ければ after', () => {
+  assert.equal(dropPlacement(0, 40), 'before');
+  assert.equal(dropPlacement(19, 40), 'before');
+  assert.equal(dropPlacement(20, 40), 'after');
+  assert.equal(dropPlacement(39, 40), 'after');
+  assert.equal(dropPlacement(5, 0), 'after');
+  assert.equal(dropPlacement(NaN, 40), 'after');
+});
+
+test('reorderDropIndex: 落とした行の前 / 後の index。並びが変わらない場所なら null', () => {
+  const order = ['a', 'b', 'c', 'd'];
+  assert.equal(reorderDropIndex(order, 'a', 'c', 'after'), 2);
+  assert.deepEqual(moveInOrder(order, 'a', 2), ['b', 'c', 'a', 'd']);
+  assert.equal(reorderDropIndex(order, 'a', 'c', 'before'), 1);
+  assert.deepEqual(moveInOrder(order, 'a', 1), ['b', 'a', 'c', 'd']);
+  assert.equal(reorderDropIndex(order, 'd', 'a', 'before'), 0);
+  assert.equal(reorderDropIndex(order, 'd', 'a', 'after'), 1);
+  // 自分の直後の行の前 / 直前の行の後 / 自分自身 → 並びが変わらない
+  assert.equal(reorderDropIndex(order, 'a', 'b', 'before'), null);
+  assert.equal(reorderDropIndex(order, 'b', 'a', 'after'), null);
+  assert.equal(reorderDropIndex(order, 'b', 'b', 'after'), null);
+  assert.equal(reorderDropIndex(order, 'zzz', 'a', 'after'), null, '無い id');
+  assert.equal(reorderDropIndex(order, 'a', 'zzz', 'after'), null, '無い落とし先');
+  assert.equal(reorderDropIndex(undefined, 'a', 'b', 'after'), null);
+});
+
+test('parseWorkspaceDragData: 独自形式の JSON から id を取り出す。他のドラッグや壊れたデータは null', () => {
+  assert.equal(parseWorkspaceDragData((t) => (t === WORKSPACE_DRAG_TYPE ? JSON.stringify({ id: 'ws_1' }) : '')), 'ws_1');
+  assert.equal(parseWorkspaceDragData(() => ''), null);
+  assert.equal(parseWorkspaceDragData(() => '{broken'), null);
+  assert.equal(parseWorkspaceDragData(() => JSON.stringify({ id: 42 })), null);
+  assert.equal(parseWorkspaceDragData(() => { throw new Error('no'); }), null);
 });

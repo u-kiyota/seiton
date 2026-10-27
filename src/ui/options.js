@@ -3,6 +3,19 @@ import { autoCloseDaysFrom, autoCloseDuration } from '../lib/core.js';
 
 const $ = (id) => document.getElementById(id);
 
+// ---- 設定項目ごとのページ分け（issue #23）: 左のナビで節を切り替える。URL の #autoclose などで直接その節を開ける ----
+
+const SECTIONS = [...document.querySelectorAll('section.sec')].map((s) => s.dataset.section);
+
+function showSection(key) {
+  const k = SECTIONS.includes(key) ? key : SECTIONS[0];
+  for (const s of document.querySelectorAll('section.sec')) s.classList.toggle('on', s.dataset.section === k);
+  for (const a of document.querySelectorAll('.sidenav a')) a.classList.toggle('on', a.getAttribute('href') === `#${k}`);
+}
+
+showSection(location.hash.slice(1));
+window.addEventListener('hashchange', () => showSection(location.hash.slice(1)));
+
 async function load() {
   const { state } = await call('getState');
   const s = state.settings;

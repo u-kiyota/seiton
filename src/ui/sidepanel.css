@@ -71,9 +71,6 @@ body {
 .col-title.row { padding: 8px 12px 8px 18px; min-height: 49px; }
 .col-title .plus { font-size: 16px; line-height: 1; padding: 4px 8px; }
 .col-body { flex: 1; overflow: auto; min-height: 0; padding: 8px 10px 16px; }
-/* 左列の下部: 設定・使い方 */
-.col-foot { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); flex: none; }
-.col-foot button { flex: 1; }
 
 .ws { border-radius: 8px; margin-bottom: 4px; }
 .ws-head { padding: 10px 12px; border-radius: 8px; cursor: pointer; gap: 8px; }
@@ -209,3 +206,21 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .mg-bulk .group { display: inline-flex; align-items: center; gap: 4px; }
 .mg-bulk .group > .label { font-size: 11px; color: var(--fg-sub); }
 .mg-bulk select { max-width: 170px; }
+
+/* ヘッダーの ☰ 管理メニュー（issue #23） */
+.menu-wrap { position: relative; }
+#menuBtn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; }
+#menuBtn.on { background: var(--bg-sel); }
+#menuBadge { background: var(--accent); color: #fff; }
+.menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 320px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
+}
+.menu-sec { padding: 8px 10px 2px; font-size: 11px; font-weight: 600; color: var(--fg-sub); }
+.menu > button[role=menuitem] {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; text-align: left;
+  border: none; background: none; padding: 6px 10px; border-radius: 6px; font-size: 13px; color: var(--fg);
+}
+.menu > button[role=menuitem]:hover, .menu > button[role=menuitem]:focus-visible { background: var(--bg-hover); outline: none; }
+.menu-sub { font-size: 11px; color: var(--fg-sub); font-weight: normal; }

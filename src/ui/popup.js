@@ -1,6 +1,6 @@
 // クイックパレット: 現在のワークスペースのタブ / 接続フォルダのブックマーク / ワークスペース切替
 import { call, h, faviconUrl, wsIcon, attempt, toast } from './api.js';
-import { matchesQuery, normalizeUrlForMatch } from '../lib/core.js';
+import { matchesQuery, normalizeUrlForMatch, resolveSwitchMode } from '../lib/core.js';
 
 const $ = (id) => document.getElementById(id);
 let windowId;
@@ -27,7 +27,7 @@ function item({ icon, title, sub, cls = '', run, remove }) {
     }, '×') : null,
   );
   const entry = { el, run, remove };
-  el.addEventListener('click', (e) => run(e.shiftKey, e.ctrlKey || e.metaKey));
+  el.addEventListener('click', (e) => run(e.shiftKey, keyMode(e)));
   el.addEventListener('mousemove', () => select(items.indexOf(entry)));
   return entry;
 }
@@ -125,10 +125,10 @@ function render() {
       title: w.name,
       sub: here ? 'このウィンドウ' : `${s?.name || ''} · ${w.tabs.length} タブ`,
       cls: here ? 'here' : '',
-      run: (shift, park) => attempt(async () => {
-        // Shift で新しいウィンドウ、Ctrl で今のタブを休止して切替（issue #35）、通常はこのウィンドウを切替
-        if (shift) await call('openInNewWindow', { workspaceId: w.id });
-        else if (!here) await call('switchWorkspace', { windowId, workspaceId: w.id, park: !!park });
+      run: (_shift, mode) => attempt(async () => {
+        // 既定の切替方法（設定）に Shift（新しいウィンドウとの入れ替え）/ Ctrl（休止との入れ替え）を加味した mode で開く（issue #35 / #37）
+        if (mode === 'window') await call('openInNewWindow', { workspaceId: w.id });
+        else if (!here) await call('switchWorkspace', { windowId, workspaceId: w.id, park: mode === 'park' });
         window.close();
       }),
     }));
@@ -152,7 +152,7 @@ document.addEventListener('keydown', (e) => {
     q.setSelectionRange(q.value.length, q.value.length);
     render();
   }
-  else if (e.key === 'Enter') { e.preventDefault(); items[sel]?.run(e.shiftKey, e.ctrlKey || e.metaKey); }
+  else if (e.key === 'Enter') { e.preventDefault(); items[sel]?.run(e.shiftKey, keyMode(e)); }
   else if (e.key === 'Delete' && items[sel]?.remove) {
     // 検索欄の文字削除を邪魔しないよう、カーソルが末尾にある時だけタブを閉じる
     const q = $('q');
@@ -184,3 +184,8 @@ $('openPanel').addEventListener('click', async () => {
   $('saveTab').disabled = !ws?.bookmarkFolderId;
   render();
 })();
+
+/** キーの組み合わせと既定の切替方法（設定・管理の「表示・操作」）から、ワークスペースの切替方法を決める（issue #37） */
+function keyMode(e) {
+  return resolveSwitchMode(e, palette?.state?.settings?.switchMode);
+}

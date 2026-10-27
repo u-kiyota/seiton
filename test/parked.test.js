@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   PARKED_PREFIX, parkedGroupProps, workspaceIdForParkedTitle, planPark, parkedTabsForSnapshot, switchModeFromKeys,
   snapshotTabs, WORKSPACE_TAB_PAGE,
+  SWITCH_MODES, normalizeSwitchMode, resolveSwitchMode, switchKeyHints, DEFAULT_SETTINGS, normalizeState,
 } from '../src/lib/core.js';
 
 // ---- 休止（issue #35）: タブを閉じずに折りたたんだグループに残す ----
@@ -91,4 +92,40 @@ test('switchModeFromKeys: Ctrl / ⌘ = 休止して切替、Shift = 新しいウ
   assert.equal(switchModeFromKeys({ metaKey: true }), 'park');
   assert.equal(switchModeFromKeys({ ctrlKey: true, shiftKey: true }), 'park', 'Ctrl が優先');
   assert.equal(switchModeFromKeys(), 'switch');
+});
+
+// ---- 既定の切替方法（issue #37） ----
+
+test('normalizeSwitchMode / DEFAULT_SETTINGS / normalizeState: 不正な値は switch', () => {
+  assert.deepEqual(SWITCH_MODES, ['switch', 'park', 'window']);
+  assert.equal(DEFAULT_SETTINGS.switchMode, 'switch');
+  assert.equal(normalizeSwitchMode('park'), 'park');
+  assert.equal(normalizeSwitchMode('window'), 'window');
+  assert.equal(normalizeSwitchMode('nope'), 'switch');
+  assert.equal(normalizeSwitchMode(undefined), 'switch');
+  assert.equal(normalizeState({ settings: { switchMode: 'nope' } }).settings.switchMode, 'switch');
+  assert.equal(normalizeState({ settings: { switchMode: 'park' } }).settings.switchMode, 'park');
+  assert.equal(normalizeState({}).settings.switchMode, 'switch');
+});
+
+test('resolveSwitchMode: 修飾キー無しは既定、Ctrl は休止との入れ替え、Shift は新しいウィンドウとの入れ替え', () => {
+  assert.equal(resolveSwitchMode({}, 'switch'), 'switch');
+  assert.equal(resolveSwitchMode({ ctrlKey: true }, 'switch'), 'park');
+  assert.equal(resolveSwitchMode({ shiftKey: true }, 'switch'), 'window');
+  assert.equal(resolveSwitchMode({}, 'park'), 'park');
+  assert.equal(resolveSwitchMode({ ctrlKey: true }, 'park'), 'switch', '既定が休止なら Ctrl で閉じる切替');
+  assert.equal(resolveSwitchMode({ metaKey: true }, 'park'), 'switch');
+  assert.equal(resolveSwitchMode({ shiftKey: true }, 'park'), 'window');
+  assert.equal(resolveSwitchMode({}, 'window'), 'window');
+  assert.equal(resolveSwitchMode({ shiftKey: true }, 'window'), 'switch', '既定が新しいウィンドウなら Shift で閉じる切替');
+  assert.equal(resolveSwitchMode({ ctrlKey: true }, 'window'), 'park');
+  assert.equal(resolveSwitchMode({ ctrlKey: true, shiftKey: true }, 'window'), 'park', 'Ctrl が優先');
+  assert.equal(resolveSwitchMode({}, 'nope'), 'switch', '不正な既定は switch');
+  assert.equal(resolveSwitchMode(undefined, undefined), 'switch');
+});
+
+test('switchKeyHints: 既定ごとの Enter / Shift / Ctrl の意味', () => {
+  assert.deepEqual(switchKeyHints('switch'), { enter: 'switch', shift: 'window', ctrl: 'park' });
+  assert.deepEqual(switchKeyHints('park'), { enter: 'park', shift: 'window', ctrl: 'switch' });
+  assert.deepEqual(switchKeyHints('window'), { enter: 'window', shift: 'switch', ctrl: 'park' });
 });

@@ -77,7 +77,7 @@
       <a href="#sessions">セッション<span class="sidenav-sub">追加・名前変更・削除・Cookie の分離</span></a>
       <a href="#closed">閉じたタブ<span id="navClosedCount" class="badge" hidden></span><span class="sidenav-sub">自動クローズの履歴から開き直す</span></a>
       <div class="sidenav-group">設定</div>
-      <a href="#display">表示<span class="sidenav-sub">ワークスペースタブ</span></a>
+      <a href="#display">表示・操作<span class="sidenav-sub">ワークスペースタブ・既定の切替方法</span></a>
       <a href="#memory">メモリ<span class="sidenav-sub">遅延読み込み・自動メモリ解放</span></a>
       <a href="#autoclose">タブの自動クローズ<span class="sidenav-sub">期間・除外 URL</span></a>
       <a href="#bookmarks">ブックマーク<span class="sidenav-sub">自動移動・親フォルダ</span></a>
@@ -118,8 +118,18 @@
       </section>
 
       <section class="sec" id="sec-display" data-section="display">
-        <h2>表示</h2>
-        <p class="sec-lead">ウィンドウの見た目に関する設定です。</p>
+        <h2>表示・操作</h2>
+        <p class="sec-lead">ウィンドウの見た目と、ワークスペースの切替方法の設定です。</p>
+        <div class="field">
+          <label>既定の切替方法
+            <select id="switchMode">
+              <option value="switch">切替（今のタブを閉じる）</option>
+              <option value="park">休止して切替（今のタブを折りたたんだグループに残す）</option>
+              <option value="window">新しいウィンドウで開く</option>
+            </select>
+          </label>
+          <div class="desc">管理パネルの検索ボックスの Enter・ワークスペース行のクリック・番号キー、クイックパレットの Enter で使う方法です。Ctrl+Enter（Mac は ⌘+Enter）は「休止して切替」との入れ替え（既定が休止なら「閉じる切替」）、Shift+Enter は「新しいウィンドウ」との入れ替えになります。行の ⏸ / ⧉ ボタンは設定に関係なくそれぞれ休止 / 新しいウィンドウです。休止については使い方ページを参照。</div>
+        </div>
         <div class="field">
           <label><input id="workspaceTab" type="checkbox"> ウィンドウの左端にワークスペースタブ（色付きのグループ）を表示</label>
           <div class="desc">タブ列の左端（固定タブの直後）に、今のワークスペースの名前と色のラベルを常に出します。ラベルをクリックすると開き、中のタブでワークスペースの切替・管理パネル・ブックマークを使えます。OFF にすると全ウィンドウのワークスペースタブを閉じます。</div>

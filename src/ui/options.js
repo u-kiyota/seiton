@@ -1,9 +1,10 @@
 import { call, h, toast, attempt, confirmButton } from './api.js';
 import { autoCloseDaysFrom, autoCloseDuration } from '../lib/core.js';
+import { createWorkspaceManager, createSessionManager, createClosedTabsView } from './manage.js';
 
 const $ = (id) => document.getElementById(id);
 
-// ---- 設定項目ごとのページ分け（issue #23）: 左のナビで節を切り替える。URL の #autoclose などで直接その節を開ける ----
+// ---- 項目ごとのページ分け（issue #23）: 左のサイドメニューで節を切り替える。URL の #autoclose などで直接その節を開ける ----
 
 const SECTIONS = [...document.querySelectorAll('section.sec')].map((s) => s.dataset.section);
 
@@ -15,6 +16,34 @@ function showSection(key) {
 
 showSection(location.hash.slice(1));
 window.addEventListener('hashchange', () => showSection(location.hash.slice(1)));
+
+// ---- 管理: ワークスペース / セッション / 閉じたタブ（manage.js。issue #23 / #25） ----
+
+let data = { state: null, bindings: {} };
+let windowId = null; // このタブのウィンドウ（「ここ」バッジ・閉じたタブを開き直す先）
+const ctx = { getData: () => data, getWindowId: () => windowId };
+const wsManager = createWorkspaceManager($('wsManager'), ctx);
+const sessionManager = createSessionManager($('sessionManager'), ctx);
+const closedView = createClosedTabsView($('closedView'), ctx);
+
+async function loadData() {
+  data = await call('getState');
+  wsManager.render();
+  await sessionManager.render();
+}
+
+function showClosedCount(list) {
+  const n = Array.isArray(list) ? list.length : 0;
+  const badge = $('navClosedCount');
+  badge.hidden = !n;
+  badge.textContent = String(n);
+  closedView.render(list);
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if ((area === 'local' && changes.state) || (area === 'session' && changes.bindings)) attempt(loadData);
+  if (area === 'local' && changes.closedTabs) showClosedCount(changes.closedTabs.newValue);
+});
 
 async function load() {
   const { state } = await call('getState');
@@ -153,26 +182,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   setExclude(next);
 });
 
-// 自動クローズで閉じたタブの履歴（管理パネルを開かなくても一括削除できるように）
-const clearClosedBtn = confirmButton('閉じたタブの履歴を削除', '本当に削除？', () => attempt(async () => {
-  await call('clearClosedTabs');
-  toast('閉じたタブの履歴を削除しました');
-}), { title: '自動クローズで閉じたタブの履歴をすべて削除（管理パネルの「閉じたタブ」と同じ）' });
-$('clearClosedSlot').append(clearClosedBtn);
-
-function showClosedCount(list) {
-  const n = Array.isArray(list) ? list.length : 0;
-  clearClosedBtn.disabled = !n;
-  $('closedCount').textContent = `自動クローズで閉じたタブの履歴: ${n} 件`;
-}
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.closedTabs) showClosedCount(changes.closedTabs.newValue);
-});
-
 // ---- セッションごとの Cookie の分離（issue #12） ----
 
-// manifest の optional_permissions / optional_host_permissions と一致させる（lib/cookies.js の COOKIE_PERMISSION と同じ）
-const COOKIE_PERMISSION = { permissions: ['cookies'], origins: ['<all_urls>'] };
 const clearCookieBtn = confirmButton('退避した Cookie を削除', '本当に削除？', () => attempt(async () => {
   await call('clearCookieJars');
   toast('退避した Cookie を削除しました');
@@ -192,6 +203,7 @@ async function renderCookie(state) {
   const st = await call('getCookieStatus');
   const active = st.permitted;
   const multi = state.sessionOrder.length > 1;
+  // 表の見出しだけ。権限の許可ボタンは上の「セッション」の一覧に出す
 
   const rows = state.sessionOrder.map((id) => {
     const now = active && id === st.cookieSessionId;
@@ -209,8 +221,8 @@ async function renderCookie(state) {
   const jarCount = Object.keys(st.jars).length;
   let head;
   if (active) head = `今 Chrome に入っている Cookie はセッション「${state.sessions[st.cookieSessionId]?.name || '不明'}」のものとして扱っています。`;
-  else if (multi) head = '権限が許可されていないため、今はセッション間で Cookie が分かれていません。「権限を許可する」で許可してください。';
-  else head = 'セッションは 1 つです。管理パネルの「セッション」で追加すると権限の確認が出て、許可すると分かれます。';
+  else if (multi) head = '権限が許可されていないため、今はセッション間で Cookie が分かれていません。上の「権限を許可する」で許可してください。';
+  else head = 'セッションは 1 つです。上の一覧で追加すると権限の確認が出て、許可すると分かれます。';
   $('cookieStatus').replaceChildren(
     h('div', {}, head),
     h('table', {},
@@ -218,18 +230,6 @@ async function renderCookie(state) {
       h('tbody', {}, rows)),
   );
   clearCookieBtn.disabled = !jarCount;
-  $('cookieGrantSlot').replaceChildren(!active && multi ? h('button', {
-    type: 'button', class: 'primary', title: 'Cookie を読み書きする権限（すべてのサイト）の確認が出ます',
-    onclick: () => attempt(async () => {
-      // 権限の要求はユーザー操作の直後に（await を挟むと操作扱いにならないことがある）
-      const granted = await chrome.permissions.request(COOKIE_PERMISSION);
-      if (!granted) { toast('権限が許可されなかったため、Cookie は分かれません', true); return; }
-      const res = await call('grantCookieIsolation', {});
-      const { state: s } = await call('getState');
-      toast(`許可しました。今の Cookie はセッション「${s.sessions[res.cookieSessionId]?.name || ''}」のものとして扱います`);
-      await renderCookie();
-    }),
-  }, '権限を許可する') : '');
 }
 
 // ワークスペースの切替で「今の Cookie のセッション」が変わったら表示を更新する
@@ -239,4 +239,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 attempt(load);
+attempt(async () => {
+  windowId = (await chrome.windows.getCurrent()).id;
+  await loadData();
+});
 attempt(async () => showClosedCount(await call('listClosedTabs')));

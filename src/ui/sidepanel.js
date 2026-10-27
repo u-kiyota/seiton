@@ -1,10 +1,10 @@
 import {
-  tabUrl, normalizeUrlForMatch, isManagerUrl, isWorkspaceTabUrl, workspacesUsingSession, matchesQuery, ICON_GROUPS, ICONS, normalizeIcon,
+  tabUrl, normalizeUrlForMatch, isManagerUrl, isWorkspaceTabUrl, matchesQuery,
   TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl, workspaceHotkey, hotkeyToIndex,
   autoCloseDaysFrom, autoCloseDuration, formatAutoCloseDuration, AUTO_CLOSE_UNIT_LABELS,
-  CLOSED_TABS_MAX, closedDayLabel, formatClockTime, autoCloseExcludeMatch, excludePatternsForUrl,
-  WORKSPACE_DRAG_TYPE, parseWorkspaceDragData, dropPlacement, reorderDropIndex,
+  autoCloseExcludeMatch, excludePatternsForUrl,
 } from '../lib/core.js';
+import { iconPicker, makeWorkspaceDraggable, makeWorkspaceDropTarget } from './manage.js';
 import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt, confirmButton } from './api.js';
 
 const $ = (id) => document.getElementById(id);
@@ -15,10 +15,8 @@ let windowId;
 // パネル自身のポップアップウィンドウ。タブとして開かれた場合（旧版の名残など）は null で、自動では閉じない
 let selfWindowId = null;
 let data = { state: null, bindings: {} };
-// Cookie の分離の状態（issue #12）。✎ のヒントとセッション管理の表示に使う。live（今の Cookie の件数）は重いので取らない
+// Cookie の分離の状態（issue #12）。✎ のヒントに使う。live（今の Cookie の件数）は重いので取らない
 let cookieInfo = null;
-// manifest の optional_permissions / optional_host_permissions と一致させる（lib/cookies.js の COOKIE_PERMISSION と同じ）
-const COOKIE_PERMISSION = { permissions: ['cookies'], origins: ['<all_urls>'] };
 let selectedId = null;
 let editingId = null;
 let folders = null; // 接続先フォルダ候補（編集を開いた時に読み込む）
@@ -32,23 +30,6 @@ let bmData;
 
 let moving = 0; // 実行中の「移動」操作の数。完了を待ってから閉じる
 let closeWhenIdle = false;
-// パネルの外にフォーカスが移っても閉じない区間の数（Chrome の権限ダイアログなど）。0 に戻ったらパネルにフォーカスを戻す
-let holdOpen = 0;
-// 保持を解除した直後は、ダイアログが閉じたときのフォーカス移動で blur が遅れて届くので、この時刻までは閉じない
-let holdUntil = 0;
-
-/** fn の間はフォーカスを失ってもパネルを閉じない（権限ダイアログがパネルの前に出るため）。終わったらパネルを前面に戻す */
-async function holdPanel(fn) {
-  holdOpen++;
-  try {
-    return await fn();
-  } finally {
-    if (selfWindowId != null) await chrome.windows.update(selfWindowId, { focused: true }).catch(() => {});
-    holdUntil = Date.now() + 1000;
-    holdOpen--;
-  }
-}
-
 function closePanel() {
   if (selfWindowId == null) return;
   if (moving) { closeWhenIdle = true; return; }
@@ -101,43 +82,6 @@ function windowOf(wsId) {
 
 function sessionName(id) {
   return data.state.sessions[id]?.name || '';
-}
-
-/**
- * アイコン選択 UI。既定の絵文字から選ぶか、入力欄に任意の絵文字を入れる。「なし」で色のドットに戻す。
- * onPick(icon) は選択のたびに呼ばれる（icon は '' = なし）
- */
-function iconPicker(current, onPick) {
-  let value = normalizeIcon(current);
-  const box = h('div', { class: 'icon-picker' });
-  const custom = h('input', { type: 'text', placeholder: '絵文字', title: '一覧に無い絵文字を入力', maxlength: 16, autocomplete: 'off' });
-  const buttons = [];
-  const sync = () => {
-    for (const b of buttons) b.classList.toggle('sel', b.dataset.icon === value);
-    // 入力中（IME 変換中を含む）は入力欄の内容を書き換えない
-    if (document.activeElement !== custom) custom.value = ICONS.includes(value) ? '' : value;
-    custom.classList.toggle('sel', !!value && !ICONS.includes(value));
-  };
-  const pick = (v) => { value = normalizeIcon(v); sync(); onPick(value); };
-  const row = (...kids) => h('div', { class: 'icon-row' }, ...kids);
-  const groups = ICON_GROUPS.map((g) => {
-    const btns = g.icons.map((ic) => h('button', { type: 'button', 'data-icon': ic, title: ic, onclick: () => pick(ic) }, ic));
-    buttons.push(...btns);
-    return row(h('span', { class: 'icon-label' }, g.label), ...btns);
-  });
-  const none = h('button', { type: 'button', class: 'none', 'data-icon': '', title: 'アイコンなし（色のドットを表示）', onclick: () => pick('') }, 'なし');
-  buttons.push(none);
-  // IME 変換中は確定するまで反映しない（変換中の文字列を保存しないため）
-  const commitCustom = () => {
-    const v = normalizeIcon(custom.value);
-    if (v) pick(v);
-  };
-  custom.addEventListener('input', (e) => { if (!e.isComposing) commitCustom(); });
-  custom.addEventListener('compositionend', commitCustom);
-  custom.addEventListener('blur', () => { if (!normalizeIcon(custom.value) && !ICONS.includes(value)) pick(''); sync(); });
-  box.append(...groups, row(h('span', { class: 'icon-label' }, 'その他'), custom, none));
-  sync();
-  return box;
 }
 
 function ensureSelection() {
@@ -334,7 +278,8 @@ function renderEditor(ws) {
     h('div', { class: 'row' }, h('span', { class: 'edit-label' }, 'アイコン'), icon),
     h('label', {}, h('span', {}, '使うセッション'), session),
     cookieInfo && !cookieInfo.permitted && state.sessionOrder.length > 1
-      ? h('div', { class: 'muted small', style: { margin: '-4px 0 4px' } }, 'Cookie を分けるための権限が未許可です。☰ 管理 → 「セッションの管理」から許可できます')
+      ? h('div', { class: 'muted small', style: { margin: '-4px 0 4px' } }, 'Cookie を分けるための権限が未許可です。',
+        h('a', { href: '#', onclick: (e) => { e.preventDefault(); openSettings('sessions'); } }, '設定・管理の「セッション」'), 'から許可できます')
       : null,
     h('label', {}, h('span', {}, 'ブックマーク'), folderSel),
     h('label', { title: '長期間使っていないタブを自動で閉じるか（設定画面の値をこのワークスペースだけ上書き）' }, h('span', {}, '自動クローズ'), acMode),
@@ -394,7 +339,7 @@ function renderList() {
     // 行をドラッグして並び替え（issue #25）。落とす位置の線は行の外枠（.ws）に出す
     const wrap = h('div', { class: `ws${here ? ' current' : ''}${selectedId === id ? ' sel' : ''}` }, head);
     makeWorkspaceDraggable(head, id);
-    makeWorkspaceDropTarget(head, id, wrap);
+    makeWorkspaceDropTarget(head, id, { getOrder: () => data.state?.workspaceOrder, mark: wrap });
     return wrap;
   }));
 }
@@ -734,192 +679,18 @@ $('createForm').addEventListener('submit', (e) => {
   attempt(() => (keep ? create() : moveAway(create)));
 });
 
-// ---- モーダル: セッション管理 ----
+// ---- 閉じたタブの件数（左下の「設定・管理」ボタンのバッジ。一覧は設定・管理画面の「閉じたタブ」） ----
 
-async function renderSessionDialog() {
-  const { state } = data;
-  const list = $('sessionList');
-  // Cookie の分離の状態（issue #12）。取れなくても一覧は出す
-  let cookie = null;
-  try {
-    cookie = await call('getCookieStatus');
-  } catch { /* 表示だけなので無視 */ }
-  const isolating = !!cookie?.permitted;
-  const multi = state.sessionOrder.length > 1;
-  $('sessionCookieNote').textContent = isolating
-    ? `別のセッションのワークスペースに切り替えると、Cookie（ログイン状態）をそのセッションのものに入れ替えます（全ウィンドウに及びます）。今 Chrome に入っている Cookie: 「${state.sessions[cookie.cookieSessionId]?.name || '不明'}」`
-    : (multi
-      ? 'Cookie を読み書きする権限が許可されていないため、今はセッション間で Cookie が分かれていません。「権限を許可する」で許可してください。'
-      : 'セッションを追加すると、Cookie を読み書きする権限（すべてのサイト）の確認が出ます。許可すると、セッションごとにログイン状態が分かれます。');
-  $('sessionCookieGrantSlot').replaceChildren(cookie && !isolating && multi ? grantButton() : '');
-  const cookieBadge = (id) => {
-    if (!isolating) return null;
-    if (id === cookie.cookieSessionId) return h('span', { class: 'badge here', title: '今 Chrome に入っている Cookie はこのセッションのものです' }, '🍪 今の Cookie');
-    const jar = cookie.jars[id];
-    return h('span', { class: 'muted small', title: jar ? `退避した Cookie: ${jar.count} 件（${new Date(jar.savedAt).toLocaleString()}）` : '退避した Cookie はありません（切り替えると未ログインの状態から始まります）' },
-      jar ? `🍪 ${jar.count}` : '🍪 なし');
-  };
-  list.replaceChildren(...state.sessionOrder.map((id) => {
-    const s = state.sessions[id];
-    const users = workspacesUsingSession(state, id);
-    const name = h('input', { type: 'text', value: s.name, title: '名前を変更' });
-    name.addEventListener('change', () => attempt(() => call('renameSession', { id, name: name.value })));
-    return h('div', { class: 'sess-row' },
-      name,
-      cookieBadge(id),
-      h('span', { class: 'muted small', title: users.map((w) => state.workspaces[w].name).join('\n') || 'このセッションを使うワークスペースはありません' },
-        `${users.length} WS`),
-      h('button', {
-        type: 'button', disabled: !users.length, title: 'このセッションを使う全ワークスペースをそれぞれ別ウィンドウで開く',
-        onclick: () => attempt(() => moveAway(() => call('openSessionWindows', { sessionId: id }))),
-      }, '全て開く'),
-      confirmButton('削除', '本当に削除？', () => attempt(async () => {
-        const res = await call('deleteSession', { id });
-        toast(res?.cookieSession
-          ? `削除しました（Cookie をセッション「${res.cookieSession.toName}」に入れ替え、ワークスペースも付け替えました）`
-          : '削除しました（使っていたワークスペースは別のセッションに付け替えました）');
-      }), { disabled: state.sessionOrder.length <= 1, title: state.sessionOrder.length <= 1 ? '最後のセッションは削除できません' : (isolating ? '削除（ワークスペースは消えません。退避した Cookie は消えます）' : '削除（ワークスペースは消えません）') }),
-    );
-  }));
-}
-
-/**
- * Cookie を分けるための権限（cookies + <all_urls>）を求める。ユーザー操作の直後に呼ぶこと。
- * 許可されたら「今 Chrome に入っている Cookie はこのウィンドウのワークスペースのセッションのもの」とサービスワーカーに伝える。
- * 既に許可済みなら何もしない。拒否されたら false
- */
-async function ensureCookiePermission() {
-  if (await chrome.permissions.contains(COOKIE_PERMISSION)) return true;
-  // 権限ダイアログでパネルがフォーカスを失っても閉じない（閉じるとリクエストごと消える）
-  const granted = await holdPanel(() => chrome.permissions.request(COOKIE_PERMISSION));
-  if (!granted) return false;
-  const sessionId = data.state.workspaces[data.bindings[windowId]]?.sessionId;
-  const res = await call('grantCookieIsolation', { sessionId });
-  if (res.adopted) toast(`今 Chrome に入っている Cookie はセッション「${data.state.sessions[res.cookieSessionId]?.name || ''}」のものとして扱います`);
-  return true;
-}
-
-/** 権限が無いのにセッションが 2 つ以上あるときの「権限を許可する」 */
-function grantButton() {
-  return h('button', {
-    type: 'button', class: 'primary', title: 'Cookie を読み書きする権限（すべてのサイト）の確認が出ます',
-    onclick: () => attempt(async () => {
-      if (!(await ensureCookiePermission())) { toast('権限が許可されなかったため、Cookie は分かれません', true); return; }
-      await renderSessionDialog();
-    }),
-  }, '権限を許可する');
-}
-
-$('sessions').addEventListener('click', () => {
-  renderSessionDialog();
-  $('sessionDialog').showModal();
-  $('sessionName').focus();
-});
-$('sessionClose').addEventListener('click', () => $('sessionDialog').close());
-$('sessionAdd').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const name = $('sessionName').value.trim();
-  if (!name) return;
-  attempt(async () => {
-    // セッションを分ける＝Cookie を分けるので、2 つ目以降のセッションを作る前に権限を求める（拒否されたら作らない）
-    if (!(await ensureCookiePermission())) {
-      toast('Cookie を読み書きする権限が許可されなかったため、セッションを追加しませんでした', true);
-      return;
-    }
-    $('sessionName').value = '';
-    await call('createSession', { name });
-    // 入力欄にフォーカスが残っていると render() が後回しになるので、一覧だけ即時に描き直す
-    data = await call('getState');
-    renderSessionDialog();
-    toast(`セッション「${name}」を追加しました`);
-  });
-});
-
-// ---- モーダル: 自動クローズで閉じたタブの履歴 ----
-
-let closedTabs = []; // 新しい順（storage.local の closedTabs）
-
-function updateClosedCount() {
-  const n = closedTabs.length;
-  $('closedLabel').textContent = n ? `閉じたタブ (${n})` : '閉じたタブ';
-  // ☰ 管理ボタンにも件数を出す（メニューを開かなくても分かるように）
-  const badge = $('menuBadge');
+function updateClosedCount(n) {
+  const badge = $('closedBadge');
   badge.hidden = !n;
   badge.textContent = String(n);
-  badge.title = `自動クローズで閉じたタブ: ${n} 件`;
+  badge.title = `自動クローズで閉じたタブ: ${n} 件（設定・管理の「閉じたタブ」で開き直せます）`;
 }
 
-async function loadClosedTabs() {
-  closedTabs = await call('listClosedTabs');
-  updateClosedCount();
-  if ($('closedDialog').open) renderClosedDialog();
+async function loadClosedCount() {
+  updateClosedCount((await call('listClosedTabs')).length);
 }
-
-/** 履歴から 1 件を開き直す。開けたら履歴から消す（開くのに失敗したら残す）。完了後にパネルを閉じる */
-function reopenClosed(entry) {
-  return moveAway(async () => {
-    await openUrlIn(entry.url, entry.workspaceId);
-    await call('removeClosedTab', { id: entry.id });
-    return null; // フォーカスは openUrlIn が移す
-  });
-}
-
-function closedRow(entry) {
-  const wsName = data.state?.workspaces[entry.workspaceId]?.name || entry.workspaceName;
-  return entryRow({
-    url: entry.url,
-    title: entry.title,
-    sub: hostOf(entry.url),
-    extra: [
-      wsName ? h('span', { class: 'ws-session', title: `ワークスペース: ${wsName}` }, wsName) : null,
-      h('span', { class: 'time muted small', title: new Date(entry.closedAt).toLocaleString() }, formatClockTime(entry.closedAt)),
-    ],
-    onOpen: () => reopenClosed(entry),
-    onClose: () => call('removeClosedTab', { id: entry.id }),
-    closeTitle: '履歴から削除',
-  });
-}
-
-const closedClearBtn = confirmButton('すべて削除', '本当に削除？', () => attempt(async () => {
-  await call('clearClosedTabs');
-  toast('閉じたタブの履歴を削除しました');
-}), { title: '閉じたタブの履歴をすべて削除' });
-$('closedClearSlot').append(closedClearBtn);
-$('closedDesc').textContent = `自動クローズで閉じたタブです。最大 ${CLOSED_TABS_MAX} 件（古いものから消えます）。クリックで開き直します。`;
-
-/** 一覧だけを描き直す（検索ボックスの入力・フォーカスは保つ） */
-function renderClosedDialog() {
-  closedClearBtn.disabled = !closedTabs.length;
-  const q = $('closedSearch').value;
-  const items = closedTabs.filter((e) => matchesQuery(`${e.title || ''} ${e.url || ''}`, q));
-  const list = $('closedList');
-  if (!items.length) {
-    list.replaceChildren(h('div', { class: 'empty' }, closedTabs.length ? '一致する閉じたタブはありません' : '自動で閉じたタブはありません'));
-    return;
-  }
-  const now = Date.now();
-  const nodes = [];
-  let label = null;
-  for (const e of items) {
-    const l = closedDayLabel(e.closedAt, now);
-    if (l !== label) {
-      label = l;
-      nodes.push(h('div', { class: 'group-label' }, l));
-    }
-    nodes.push(closedRow(e));
-  }
-  list.replaceChildren(...nodes);
-}
-
-$('closedTabs').addEventListener('click', () => attempt(async () => {
-  $('closedSearch').value = '';
-  renderClosedDialog();
-  $('closedDialog').showModal();
-  $('closedSearch').focus();
-  await loadClosedTabs();
-}));
-$('closedClose').addEventListener('click', () => $('closedDialog').close());
-$('closedSearch').addEventListener('input', () => renderClosedDialog());
 
 // ---- モーダル: 自動クローズから除外（issue #20） ----
 
@@ -962,309 +733,6 @@ $('excludeForm').addEventListener('submit', (e) => {
   });
 });
 
-// ---- ワークスペースの並び替え: ドラッグ＆ドロップ（issue #25） ----
-
-// ドラッグ中のワークスペース ID。dragover 中は dataTransfer の中身が読めないので控えておく
-let draggingWsId = null;
-
-function hasWorkspaceDrag(e) {
-  return !!e.dataTransfer && [...e.dataTransfer.types].includes(WORKSPACE_DRAG_TYPE);
-}
-
-function clearReorderMarks() {
-  for (const el of document.querySelectorAll('.drop-before, .drop-after')) el.classList.remove('drop-before', 'drop-after');
-}
-
-/**
- * el をワークスペース id のドラッグ元にする。handle を渡すとそこを押した時だけドラッグできる（入力欄のある行用）。
- * ドラッグを始めた行の click（切替）は 1 回だけ無視する
- */
-function makeWorkspaceDraggable(el, id, handle = null) {
-  if (handle) {
-    el.draggable = false;
-    handle.addEventListener('mousedown', () => { el.draggable = true; });
-    handle.addEventListener('mouseup', () => { el.draggable = false; });
-  } else {
-    el.draggable = true;
-  }
-  el.addEventListener('dragstart', (e) => {
-    suppressRowClick = true;
-    draggingWsId = id;
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData(WORKSPACE_DRAG_TYPE, JSON.stringify({ id }));
-    el.classList.add('dragging');
-  });
-  // ドラッグ直後に click が届いても切替しない（タブの行と同じ仕組み）
-  el.addEventListener('click', (e) => {
-    if (!suppressRowClick) return;
-    suppressRowClick = false;
-    e.stopImmediatePropagation();
-  }, true);
-  el.addEventListener('dragend', () => {
-    draggingWsId = null;
-    el.classList.remove('dragging');
-    if (handle) el.draggable = false;
-    clearReorderMarks();
-  });
-  return el;
-}
-
-/** ドロップ位置（行の前 / 後）から並び替え先の index を求める。並びが変わらないなら null */
-function reorderTargetIndex(e, el, draggedId, targetId) {
-  const r = el.getBoundingClientRect();
-  return reorderDropIndex(data.state?.workspaceOrder || [], draggedId, targetId, dropPlacement(e.clientY - r.top, r.height));
-}
-
-/**
- * el をワークスペース id の行として、他のワークスペースのドロップ先にする。
- * 上半分に落とすとその行の前、下半分なら後ろへ。印（線）は mark（省略時は el）に付ける
- */
-function makeWorkspaceDropTarget(el, id, mark = el) {
-  el.addEventListener('dragover', (e) => {
-    if (!hasWorkspaceDrag(e)) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    const r = el.getBoundingClientRect();
-    const placement = dropPlacement(e.clientY - r.top, r.height);
-    const toIndex = draggingWsId ? reorderTargetIndex(e, el, draggingWsId, id) : null;
-    mark.classList.toggle('drop-before', toIndex !== null && placement === 'before');
-    mark.classList.toggle('drop-after', toIndex !== null && placement === 'after');
-  });
-  el.addEventListener('dragleave', (e) => {
-    if (e.relatedTarget && el.contains(e.relatedTarget)) return;
-    mark.classList.remove('drop-before', 'drop-after');
-  });
-  el.addEventListener('drop', (e) => {
-    if (!hasWorkspaceDrag(e)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    clearReorderMarks();
-    const dragged = parseWorkspaceDragData((t) => e.dataTransfer.getData(t));
-    if (!dragged) return;
-    const toIndex = reorderTargetIndex(e, el, dragged, id);
-    if (toIndex === null) return;
-    attempt(() => call('reorderWorkspace', { id: dragged, toIndex }));
-  });
-  return el;
-}
-
-// ---- モーダル: ワークスペースの管理（一覧で編集・一括変更・並び替え・削除。issue #25） ----
-
-const manageSelected = new Set(); // チェックを入れたワークスペース ID
-let manageExpandId = null; // 「外観」（色・アイコン）を開いている行
-
-/** 行ごとの「自動クローズ」: 設定に従う（null）/ 無効 / 有効（期間） */
-function autoCloseControls(ws, { onSave, inline = true }) {
-  const { state } = data;
-  const globalAc = state.settings.autoClose || { enabled: false, days: 7 };
-  const ac = ws?.autoClose || null;
-  const acDaysValue = ac?.days ?? globalAc.days;
-  const mode = h('select', { title: 'タブの自動クローズ（設定画面の値をこのワークスペースだけ上書き）' },
-    h('option', { value: '', selected: !ac }, `設定に従う（${globalAc.enabled ? `有効・${formatAutoCloseDuration(globalAc.days)}` : '無効'}）`),
-    h('option', { value: 'off', selected: !!ac && !ac.enabled }, '無効'),
-    h('option', { value: 'on', selected: !!ac?.enabled }, '有効'));
-  const dur = autoCloseDuration(acDaysValue);
-  const value = h('input', { type: 'number', min: '1', step: '1', value: String(dur.value), style: { width: '64px' }, title: '閉じるまでの期間（最後に使ってから）' });
-  const unit = h('select', { title: '単位' }, ...Object.entries(AUTO_CLOSE_UNIT_LABELS).map(([v, label]) =>
-    h('option', { value: v, selected: v === dur.unit }, label)));
-  const durationBox = h('span', { class: 'row ac-duration', hidden: !ac?.enabled }, value, unit);
-  const read = () => {
-    if (!mode.value) return null;
-    if (mode.value === 'off') return { enabled: false, days: acDaysValue };
-    const days = autoCloseDaysFrom(value.value, unit.value);
-    if (days === null) {
-      toast('期間は 15 分以上で入力してください', true);
-      value.value = String(dur.value);
-      unit.value = dur.unit;
-      return undefined;
-    }
-    return { enabled: true, days };
-  };
-  const commit = () => {
-    const v = read();
-    if (v !== undefined) onSave(v);
-  };
-  mode.addEventListener('change', () => {
-    durationBox.hidden = mode.value !== 'on';
-    // フォーカスが残っていると一覧の描き直しが後回しになるので外す
-    if (inline) mode.blur();
-    commit();
-  });
-  value.addEventListener('change', commit);
-  unit.addEventListener('change', commit);
-  return { box: h('span', { class: 'row ac-controls' }, mode, durationBox), read };
-}
-
-function manageRow(ws, index) {
-  const { state, bindings } = data;
-  const here = bindings[windowId] === ws.id;
-  const openIn = windowOf(ws.id);
-  const save = (patch) => attempt(() => call('updateWorkspace', { id: ws.id, patch }));
-
-  const grip = h('span', { class: 'mg-grip', title: 'ドラッグで並び替え' }, '⋮⋮');
-  const check = h('input', { type: 'checkbox', checked: manageSelected.has(ws.id), title: '一括変更の対象にする' });
-  check.addEventListener('change', () => {
-    if (check.checked) manageSelected.add(ws.id); else manageSelected.delete(ws.id);
-    syncManageBulk();
-  });
-  const look = h('button', {
-    type: 'button', class: 'icon mg-look', title: '色・アイコンを変更',
-    onclick: () => { manageExpandId = manageExpandId === ws.id ? null : ws.id; renderManageDialog(); },
-  }, wsIcon(ws), h('span', { class: 'muted small' }, manageExpandId === ws.id ? '▲' : '▼'));
-  const name = h('input', { type: 'text', class: 'mg-name', value: ws.name, title: '名前（Enter または他へ移動で保存）' });
-  name.addEventListener('change', () => {
-    const v = name.value.trim();
-    if (!v) { name.value = ws.name; return; }
-    save({ name: v });
-  });
-  const session = h('select', { class: 'mg-session', title: '使うセッション' }, state.sessionOrder.map((id) =>
-    h('option', { value: id, selected: id === ws.sessionId }, state.sessions[id].name)));
-  session.addEventListener('change', () => {
-    session.blur();
-    attempt(async () => {
-      const res = await call('updateWorkspace', { id: ws.id, patch: { sessionId: session.value } });
-      if (res?.cookieSession) toast(`「${ws.name}」のセッションを変え、Cookie を入れ替えてページを読み込み直しました`);
-    });
-  });
-  const ac = autoCloseControls(ws, { onSave: (autoClose) => save({ autoClose }) });
-  const status = here ? h('span', { class: 'badge here', title: 'このウィンドウで開いています' }, 'ここ')
-    : openIn != null ? h('span', { class: 'badge', title: '別ウィンドウで開いています' }, '別') : null;
-  const del = confirmButton('削除', '本当に削除？', () => attempt(async () => {
-    await call('deleteWorkspace', { id: ws.id });
-    manageSelected.delete(ws.id);
-    if (selectedId === ws.id) selectedId = null;
-    if (editingId === ws.id) editingId = null;
-    toast(`「${ws.name}」を削除しました（ブックマークフォルダは残っています）`);
-  }), { class: 'danger icon', title: '削除（ブックマークフォルダは残ります）' });
-
-  const row = h('div', { class: `mg-row${manageSelected.has(ws.id) ? ' sel' : ''}` },
-    grip,
-    check,
-    h('span', { class: 'badge hotkey', title: '一覧での番号' }, workspaceHotkey(index) || String(index + 1)),
-    look,
-    name,
-    session,
-    ac.box,
-    h('span', { class: 'muted small mg-tabs', title: '保存されているタブ数' }, `${ws.tabs.length} タブ`),
-    status,
-    del,
-  );
-  makeWorkspaceDraggable(row, ws.id, grip);
-  makeWorkspaceDropTarget(row, ws.id);
-  if (manageExpandId !== ws.id) return [row];
-
-  const colors = h('div', { class: 'colors' }, COLORS.map((c) => h('span', {
-    class: 'dot' + (c === ws.color ? ' sel' : ''), title: c, style: { background: COLOR_HEX[c] },
-    onclick: () => save({ color: c }),
-  })));
-  const icon = iconPicker(ws.icon, (v) => save({ icon: v }));
-  const expand = h('div', { class: 'mg-expand' },
-    h('div', { class: 'row' }, h('span', { class: 'edit-label' }, '色'), colors),
-    h('div', { class: 'row' }, h('span', { class: 'edit-label' }, 'アイコン'), icon),
-  );
-  return [row, expand];
-}
-
-/** 一括変更バーの件数表示・ボタンの有効 / 無効 */
-function syncManageBulk() {
-  const n = [...manageSelected].filter((id) => data.state?.workspaces[id]).length;
-  const total = data.state?.workspaceOrder.length || 0;
-  $('manageCount').textContent = n ? `${n} 件を選択中` : 'チェックした行に下の一括変更を適用します';
-  $('manageAll').checked = total > 0 && n === total;
-  $('manageAll').indeterminate = n > 0 && n < total;
-  for (const el of $('manageDialog').querySelectorAll('.mg-bulk button, .mg-bulk select, .mg-bulk input')) {
-    if (el.id !== 'manageAll') el.disabled = !n;
-  }
-  for (const row of $('manageList').querySelectorAll('.mg-row')) {
-    const cb = row.querySelector('input[type=checkbox]');
-    row.classList.toggle('sel', !!cb?.checked);
-  }
-}
-
-let bulkAutoClose = null; // 一括変更の「自動クローズ」コントロール（描画のたびに作り直す）
-
-function renderManageDialog() {
-  const { state } = data;
-  for (const id of [...manageSelected]) if (!state.workspaces[id]) manageSelected.delete(id);
-  if (manageExpandId && !state.workspaces[manageExpandId]) manageExpandId = null;
-
-  // 一括変更のセッション候補（選択中の値は保つ）
-  const bs = $('bulkSession');
-  const keepSession = bs.value;
-  bs.replaceChildren(h('option', { value: '' }, 'セッションを選択…'),
-    ...state.sessionOrder.map((id) => h('option', { value: id }, state.sessions[id].name)));
-  bs.value = state.sessions[keepSession] ? keepSession : '';
-  const bc = $('bulkColor');
-  if (!bc.options.length) {
-    bc.replaceChildren(h('option', { value: '' }, '色を選択…'),
-      ...COLORS.map((c) => h('option', { value: c, style: { color: COLOR_HEX[c] } }, `● ${c}`)));
-  }
-  // 自動クローズは行と同じコントロール（期間付き）。入力中の値を保つため、開いた時に 1 度だけ作る
-  if (!bulkAutoClose) {
-    bulkAutoClose = autoCloseControls({ autoClose: null }, { onSave: () => {}, inline: false });
-    $('bulkAutoCloseSlot').replaceChildren(bulkAutoClose.box);
-  }
-
-  const list = $('manageList');
-  if (!state.workspaceOrder.length) {
-    list.replaceChildren(h('div', { class: 'empty' }, 'ワークスペースがありません。'));
-  } else {
-    list.replaceChildren(...state.workspaceOrder.flatMap((id, index) => manageRow(state.workspaces[id], index)));
-  }
-  syncManageBulk();
-}
-
-/** チェックした行に patch を適用する */
-function bulkApply(patch, label) {
-  const ids = [...manageSelected].filter((id) => data.state.workspaces[id]);
-  if (!ids.length) { toast('変更する行にチェックを入れてください', true); return; }
-  attempt(async () => {
-    const res = await call('updateWorkspaces', { ids, patch });
-    toast(`${res.count} 件の${label}を変更しました${res.cookieSession ? '（Cookie を入れ替えてページを読み込み直しました）' : ''}`);
-  });
-}
-
-$('manage').addEventListener('click', () => {
-  manageExpandId = null;
-  bulkAutoClose = null;
-  renderManageDialog();
-  $('manageDialog').showModal();
-});
-$('manageClose').addEventListener('click', () => $('manageDialog').close());
-$('manageAll').addEventListener('change', () => {
-  const all = data.state?.workspaceOrder || [];
-  if ($('manageAll').checked) for (const id of all) manageSelected.add(id);
-  else manageSelected.clear();
-  for (const cb of $('manageList').querySelectorAll('.mg-row input[type=checkbox]')) cb.checked = $('manageAll').checked;
-  syncManageBulk();
-});
-$('bulkSessionApply').addEventListener('click', () => {
-  const sid = $('bulkSession').value;
-  if (!sid) { toast('セッションを選んでください', true); return; }
-  bulkApply({ sessionId: sid }, 'セッション');
-});
-$('bulkColorApply').addEventListener('click', () => {
-  const c = $('bulkColor').value;
-  if (!c) { toast('色を選んでください', true); return; }
-  bulkApply({ color: c }, '色');
-});
-$('bulkAutoCloseApply').addEventListener('click', () => {
-  const v = bulkAutoClose?.read();
-  if (v === undefined) return;
-  bulkApply({ autoClose: v }, '自動クローズ');
-});
-$('bulkDeleteSlot').append(confirmButton('選択を削除', '本当に削除？', () => {
-  const ids = [...manageSelected].filter((id) => data.state.workspaces[id]);
-  if (!ids.length) return;
-  attempt(async () => {
-    const res = await call('deleteWorkspaces', { ids });
-    for (const id of ids) manageSelected.delete(id);
-    if (ids.includes(selectedId)) selectedId = null;
-    if (ids.includes(editingId)) editingId = null;
-    toast(`${res.count} 件を削除しました（ブックマークフォルダは残っています）`);
-  });
-}, { title: 'チェックした行をまとめて削除（ブックマークフォルダは残ります）' }));
-
 // ---- 描画 ----
 
 let pendingRender = false;
@@ -1282,8 +750,6 @@ function render() {
   renderList();
   renderBookmarks();
   renderTabs();
-  if ($('sessionDialog').open) renderSessionDialog();
-  if ($('manageDialog').open) renderManageDialog();
 }
 
 document.addEventListener('focusout', () => {
@@ -1338,38 +804,28 @@ async function loadFolders() {
   render();
 }
 
-// ---- ヘッダーの ☰ 管理メニュー（issue #23）: ワークスペース / セッション / タブ / 設定・使い方 を 1 つにまとめる ----
-
-function menuOpen() {
-  return !$('menu').hidden;
-}
-
-function setMenu(open) {
-  $('menu').hidden = !open;
-  $('menuBtn').setAttribute('aria-expanded', String(open));
-  $('menuBtn').classList.toggle('on', open);
-  if (open) $('menu').querySelector('button')?.focus();
-}
-
-$('menuBtn').addEventListener('click', () => setMenu(!menuOpen()));
-// 項目を押したら閉じる（各項目の処理は対象のボタンに直接付いたリスナーが先に走る）
-$('menu').addEventListener('click', (e) => { if (e.target.closest('button')) setMenu(false); });
-$('menuCreate').addEventListener('click', () => openCreateDialog());
-document.addEventListener('mousedown', (e) => { if (menuOpen() && !e.target.closest('.menu-wrap')) setMenu(false); });
-// ↑↓ で項目を移動
-$('menu').addEventListener('keydown', (e) => {
-  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-  const items = [...$('menu').querySelectorAll('button:not([disabled])')];
-  const i = items.indexOf(document.activeElement);
-  e.preventDefault();
-  items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
-});
-
 $('discard').addEventListener('click', () => attempt(async () => {
   const n = await call('discardInactive', { windowId });
   toast(`${n} 個のタブを休止しました`);
 }));
-$('options').addEventListener('click', () => attempt(() => moveAway(() => chrome.runtime.openOptionsPage())));
+/**
+ * 設定・管理画面（ワークスペース / セッション / 閉じたタブ / 各設定）を対象ウィンドウのタブで開く。
+ * 既に開いていればそのタブへ。section は #workspaces などの節。開いたらパネルを閉じる
+ */
+function openSettings(section = '') {
+  return attempt(() => moveAway(async () => {
+    const base = chrome.runtime.getURL('src/ui/options.html');
+    const url = section ? `${base}#${section}` : base;
+    const [tab] = await chrome.tabs.query({ url: `${base}*` });
+    if (tab) {
+      await chrome.tabs.update(tab.id, { url, active: true });
+      return tab.windowId;
+    }
+    await chrome.tabs.create({ windowId, url });
+    return windowId;
+  }));
+}
+$('options').addEventListener('click', () => openSettings());
 // パネルはポップアップウィンドウなので、windowId を指定して対象ウィンドウのタブとして開く
 $('guide').addEventListener('click', () => attempt(() => moveAway(async () => {
   await chrome.tabs.create({ windowId, url: chrome.runtime.getURL('src/ui/guide.html') });
@@ -1380,9 +836,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if ((area === 'local' && changes.state) || (area === 'session' && changes.bindings)) attempt(load);
   if (area === 'local' && changes.closedTabs) {
     const v = changes.closedTabs.newValue;
-    closedTabs = Array.isArray(v) ? v : [];
-    updateClosedCount();
-    if ($('closedDialog').open) renderClosedDialog();
+    updateClosedCount(Array.isArray(v) ? v.length : 0);
   }
 });
 chrome.bookmarks.onCreated.addListener(() => { bmKey = ''; folders = null; scheduleDetail(); });
@@ -1574,7 +1028,6 @@ document.addEventListener('keydown', (e) => {
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
   if (document.querySelector('dialog[open]')) return;
   e.preventDefault();
-  setMenu(false);
   $('search').focus();
   $('search').select();
 });
@@ -1589,7 +1042,7 @@ document.addEventListener('keydown', (e) => {
   const t = e.target;
   const editable = t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
   if (editable && !(t === $('search') && !t.value)) return;
-  if (editingId || menuOpen() || document.querySelector('dialog[open]')) return;
+  if (editingId || document.querySelector('dialog[open]')) return;
   const id = data?.state?.workspaceOrder[index];
   if (!id) return;
   e.preventDefault();
@@ -1607,11 +1060,6 @@ document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return;
   if (document.querySelector('dialog[open]')) return; // ダイアログは Esc で閉じる（ブラウザ既定の動作）
   e.preventDefault();
-  if (menuOpen()) {
-    setMenu(false);
-    $('menuBtn').focus();
-    return;
-  }
   if (editingId) {
     editingId = null;
     // 入力欄にフォーカスがあると描画が後回しになるので外す
@@ -1625,7 +1073,7 @@ document.addEventListener('keydown', (e) => {
 // フォーカスを失ったら閉じる（モーダル的な挙動）。一瞬だけ外れることがあるので少し待ってから確かめる
 window.addEventListener('blur', (e) => {
   if (e.target !== window) return;
-  setTimeout(() => { if (!document.hasFocus() && !holdOpen && Date.now() > holdUntil) closePanel(); }, 150);
+  setTimeout(() => { if (!document.hasFocus()) closePanel(); }, 150);
 });
 // 対象ウィンドウが閉じられたらパネルも閉じる
 chrome.windows.onRemoved.addListener((id) => { if (id === windowId) closePanel(); });
@@ -1641,5 +1089,5 @@ chrome.bookmarks.onMoved.addListener(() => { allBm = null; });
   windowId = await resolveTargetWindow();
   await attempt(load);
   $('search').focus();
-  attempt(loadClosedTabs);
+  attempt(loadClosedCount);
 })();

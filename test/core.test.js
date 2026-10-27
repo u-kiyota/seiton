@@ -13,6 +13,7 @@ import {
   normalizeExcludePattern, normalizeExcludePatterns, matchesExcludePattern, autoCloseExcludeMatch, excludePatternsForUrl,
   cookieUrl, cookieSetDetails, cookieRemoveDetails, cookieKey, isExpiredCookie, dedupeCookies, normalizeCookieJar, cookieHosts,
   WORKSPACE_DRAG_TYPE, parseWorkspaceDragData, moveInOrder, dropPlacement, reorderDropIndex,
+  workspaceOfTab, appendSavedTabs, removeSavedTabsByUrl, takeSavedTabs, moveTabsMessage,
 } from '../src/lib/core.js';
 
 // ---- セッションごとの Cookie の分離（issue #12） ----
@@ -797,4 +798,52 @@ test('parseWorkspaceDragData: 独自形式の JSON から id を取り出す。�
   assert.equal(parseWorkspaceDragData(() => '{broken'), null);
   assert.equal(parseWorkspaceDragData(() => JSON.stringify({ id: 42 })), null);
   assert.equal(parseWorkspaceDragData(() => { throw new Error('no'); }), null);
+});
+
+// ---- タブを別のワークスペースへ移動（issue #33） ----
+
+test('workspaceOfTab: 休止グループのタブはそのワークスペース、そうでなければウィンドウのワークスペース', () => {
+  const bindings = { 1: 'a', 2: 'b' };
+  const parked = { 7: { workspaceId: 'c' } };
+  assert.equal(workspaceOfTab({ windowId: 1, groupId: -1 }, bindings, parked), 'a');
+  assert.equal(workspaceOfTab({ windowId: 1, groupId: 7 }, bindings, parked), 'c', '休止グループが優先');
+  assert.equal(workspaceOfTab({ windowId: 1, groupId: 8 }, bindings, parked), 'a', '普通のグループはウィンドウのワークスペース');
+  assert.equal(workspaceOfTab({ windowId: 3, groupId: -1 }, bindings, parked), null, '未割り当て');
+  assert.equal(workspaceOfTab({ windowId: 3 }, bindings), null);
+});
+
+test('appendSavedTabs: 末尾に足し、同じ URL・保存できない URL は足さず、前面とグループは外す', () => {
+  const base = [{ url: 'https://a/', title: 'A', active: true, groupKey: 'g1' }];
+  const { tabs, added } = appendSavedTabs(base, [
+    { url: 'https://b/', title: 'B', active: true, groupKey: 'g9', pinned: true, lastAccessed: 5 },
+    { url: 'https://a/#x', title: 'dup' },
+    { url: 'chrome-extension://abc/page.html', title: 'ext' },
+    { url: 'https://b', title: 'dup2' },
+  ]);
+  assert.equal(added, 1);
+  assert.deepEqual(tabs, [
+    base[0],
+    { url: 'https://b/', title: 'B', active: false, groupKey: null, pinned: true, lastAccessed: 5 },
+  ]);
+  assert.deepEqual(appendSavedTabs(undefined, undefined), { tabs: [], added: 0 });
+});
+
+test('removeSavedTabsByUrl: フラグメント・末尾スラッシュを無視して外す', () => {
+  const tabs = [{ url: 'https://a/' }, { url: 'https://b/x' }, { url: 'https://c/' }];
+  assert.deepEqual(removeSavedTabsByUrl(tabs, ['https://a', 'https://b/x#frag']), [{ url: 'https://c/' }]);
+  assert.deepEqual(removeSavedTabsByUrl(tabs, []), tabs);
+});
+
+test('takeSavedTabs: 位置と URL が合うものだけ取り出し、合わないものは飛ばす', () => {
+  const tabs = [{ url: 'https://a/' }, { url: 'https://b/' }, { url: 'https://c/' }];
+  const { kept, taken } = takeSavedTabs(tabs, [{ index: 2, url: 'https://c' }, { index: 0, url: 'https://zzz/' }, { index: 9, url: 'https://a/' }]);
+  assert.deepEqual(taken, [{ url: 'https://c/' }]);
+  assert.deepEqual(kept, [{ url: 'https://a/' }, { url: 'https://b/' }]);
+  assert.deepEqual(takeSavedTabs(tabs, undefined), { kept: tabs, taken: [] });
+});
+
+test('moveTabsMessage: 移動先の状態ごとの文言と対象外の件数', () => {
+  assert.equal(moveTabsMessage({ moved: 2, mode: 'window', workspaceName: 'A' }), '2 個のタブを「A」のウィンドウへ移しました');
+  assert.equal(moveTabsMessage({ moved: 1, mode: 'parked', workspaceName: 'A' }), '1 個のタブを「A」の休止グループへ移しました');
+  assert.equal(moveTabsMessage({ moved: 3, skipped: 1, mode: 'saved', workspaceName: 'A' }), '3 個のタブを「A」の保存タブに加えました（1 個は対象外）');
 });

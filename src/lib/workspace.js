@@ -3,7 +3,7 @@
 import {
   uid, COLORS, normalizeIcon, snapshotTabs, tabUrl, isBlankUrl, isRestorableUrl, isWorkspaceTabUrl,
   matchWindowsToWorkspaces, missingTabs, planRestore, workspacesUsingSession, normalizeAutoCloseOverride, moveInOrder,
-  parkedTabsForSnapshot,
+  parkedTabsForSnapshot, isManagerUrl, workspaceOfTab, appendSavedTabs, removeSavedTabsByUrl, takeSavedTabs,
 } from './core.js';
 import { loadState, saveState, mutate, getBindings, setBinding, clearBindings, windowForWorkspace } from './store.js';
 import { enqueueDiscard, cancelDiscard } from './memory.js';
@@ -11,7 +11,8 @@ import { rememberInheritedAccess, getInheritedAccess } from './access.js';
 import { createFolderForWorkspace, renameManagedFolder } from './bookmarks.js';
 import { ensureCookieSession, needsCookieSwap, getCookieSessionId, isolationActive, swapCookies, forgetSessionJar } from './cookies.js';
 import {
-  parkedGroupsInWindow, parkedLocation, parkTabs, unparkGroup, closeParkedGroup, recoverParkedGroups, pruneParked,
+  parkedGroupsInWindow, parkedLocation, parkTabs, unparkGroup, closeParkedGroup, recoverParkedGroups, pruneParked, getParked,
+  addToParkedGroup,
 } from './parked.js';
 
 // 自分でタブを作成・削除している最中のウィンドウ。この間のスナップショットは抑止する
@@ -306,6 +307,182 @@ export async function closeParked(workspaceId) {
   } finally {
     switchingWindows.delete(at.windowId);
   }
+}
+
+// ---- タブを別のワークスペースへ移動（issue #33） ----
+
+/**
+ * ウィンドウから leaving のタブが抜けた後に、中身のあるタブが 1 枚も残らないなら空白タブを足す
+ * （最後のタブが抜けるとウィンドウが閉じる。ワークスペースタブだけが残ると保存タブが更新されず、移したタブが残ってしまう）
+ */
+async function keepWindowsAlive(windowIds, leaving, parkedMap = {}) {
+  for (const windowId of windowIds) {
+    let tabs;
+    try {
+      tabs = await chrome.tabs.query({ windowId });
+    } catch {
+      continue;
+    }
+    // 休止グループのタブは他のワークスペースのものなので「残るタブ」に数えない
+    const remains = tabs.some((t) => !leaving.has(t.id) && isRestorableUrl(tabUrl(t)) && !isManagerUrl(tabUrl(t)) && !parkedMap[t.groupId]);
+    if (!remains) await chrome.tabs.create({ windowId, active: false }).catch(() => {});
+  }
+}
+
+/** 移動先: 開いているウィンドウ（window）/ 休止グループ（parked）/ どちらでもない（保存タブだけ） */
+async function destinationOf(workspaceId) {
+  const windowId = await windowForWorkspace(workspaceId);
+  if (windowId !== null) return { mode: 'window', windowId };
+  const parkedAt = await parkedLocation(workspaceId);
+  if (parkedAt) return { mode: 'parked', windowId: parkedAt.windowId, groupId: parkedAt.groupId };
+  return { mode: 'saved', windowId: null };
+}
+
+/**
+ * 開いているタブを別のワークスペースへ移す（issue #33）。
+ * 移動先が開いていればそのウィンドウへタブを移し（読み込み直さない）、休止中なら休止グループに加え、
+ * どちらでもなければ保存タブに加えてタブを閉じる。元のワークスペースの保存タブからはその URL を外す。
+ * 戻り値: { moved, skipped, mode: 'window' | 'parked' | 'saved', workspaceName }
+ */
+export async function moveTabsToWorkspace(tabIds, targetId) {
+  const state = await loadState();
+  const target = state.workspaces[targetId];
+  if (!target) throw new Error('移動先のワークスペースが見つかりません');
+  const bindings = await getBindings();
+  const parkedMap = await getParked();
+  const tabs = [];
+  let skipped = 0;
+  for (const id of [...new Set(tabIds || [])]) {
+    let t;
+    try {
+      t = await chrome.tabs.get(Number(id));
+    } catch {
+      continue; // 既に閉じられた
+    }
+    const url = tabUrl(t);
+    if (isManagerUrl(url) || isWorkspaceTabUrl(url) || !isRestorableUrl(url) || workspaceOfTab(t, bindings, parkedMap) === targetId) {
+      skipped++;
+      continue;
+    }
+    tabs.push(t);
+  }
+  if (!tabs.length) throw new Error(skipped ? '選んだタブは既にそのワークスペースにあります' : '移動するタブがありません');
+  const dest = await destinationOf(targetId);
+  const sourceWindows = [...new Set(tabs.map((t) => t.windowId))];
+  const touched = new Set([...sourceWindows, ...(dest.windowId !== null ? [dest.windowId] : [])]);
+  for (const wid of touched) switchingWindows.add(wid);
+  let failure = null;
+  try {
+    // 元のワークスペースの保存タブから外す（この後の snapshot で、残っているタブは戻る）
+    const urls = tabs.map(tabUrl);
+    const sources = new Set(tabs.map((t) => workspaceOfTab(t, bindings, parkedMap)).filter(Boolean));
+    await mutate((s) => {
+      for (const id of sources) {
+        const ws = s.workspaces[id];
+        if (!ws) continue;
+        ws.tabs = removeSavedTabsByUrl(ws.tabs, urls);
+        ws.updatedAt = Date.now();
+      }
+    });
+    const ids = new Set(tabs.map((t) => t.id));
+    // ウィンドウから出ていくタブ（移動先と同じウィンドウにあるタブはグループを出入りするだけ）
+    await keepWindowsAlive(sourceWindows, new Set(tabs.filter((t) => t.windowId !== dest.windowId).map((t) => t.id)), parkedMap);
+    if (dest.mode === 'window') {
+      const moving = tabs.filter((t) => t.windowId !== dest.windowId);
+      if (moving.length) await chrome.tabs.move(moving.map((t) => t.id), { windowId: dest.windowId, index: -1 });
+      // 同じウィンドウの休止グループから出すだけならグループを外す
+      const staying = tabs.filter((t) => t.windowId === dest.windowId && t.groupId !== -1);
+      if (staying.length) await chrome.tabs.ungroup(staying.map((t) => t.id)).catch(() => {});
+      // ウィンドウをまたぐと固定が外れることがあるので付け直す
+      for (const t of moving) if (t.pinned) await chrome.tabs.update(t.id, { pinned: true }).catch(() => {});
+    } else if (dest.mode === 'parked') {
+      await addToParkedGroup(dest.groupId, tabs);
+    } else {
+      const inherited = await getInheritedAccess();
+      const snap = snapshotTabs(tabs, {}, inherited);
+      await mutate((s) => {
+        const ws = s.workspaces[targetId];
+        if (!ws) throw new Error('移動先のワークスペースが見つかりません');
+        ws.tabs = appendSavedTabs(ws.tabs, snap.tabs).tabs;
+        ws.updatedAt = Date.now();
+      });
+      await chrome.tabs.remove([...ids]).catch(() => {});
+    }
+  } catch (e) {
+    failure = e;
+  } finally {
+    for (const wid of touched) switchingWindows.delete(wid);
+  }
+  // 途中で失敗しても、保存タブを今のウィンドウの内容に合わせ直す
+  for (const wid of touched) await snapshotWindow(wid);
+  if (failure) throw failure;
+  return { moved: tabs.length, skipped, mode: dest.mode, workspaceName: target.name };
+}
+
+/** 保存タブ entries をウィンドウに前面にせず開く（前面のタブはそのまま）。戻り値: 作ったタブ */
+async function createSavedTabs(windowId, entries) {
+  const [front] = await chrome.tabs.query({ windowId, active: true });
+  const anchorId = front?.id ?? null;
+  const out = [];
+  for (const t of entries) {
+    try {
+      const tab = await createInactiveTab(windowId, { url: t.url, pinned: !!t.pinned }, anchorId);
+      await rememberInheritedAccess(tab.id, t.lastAccessed);
+      out.push(tab);
+    } catch (e) {
+      console.warn('[workspace] failed to open tab', t.url, e);
+    }
+  }
+  return out;
+}
+
+/**
+ * 開いていないワークスペースの保存タブを別のワークスペースへ移す（issue #33）。picks: [{ index, url }]（takeSavedTabs 参照）。
+ * 移動先が開いていればそのウィンドウに（前面にせず、遅延読み込みなら読み込まずに）開き、休止中なら休止グループに加え、
+ * どちらでもなければ保存タブに加える。戻り値: { moved, mode, workspaceName }
+ */
+export async function moveSavedTabs(fromId, picks, targetId) {
+  if (fromId === targetId) throw new Error('同じワークスペースです');
+  const state = await loadState();
+  const from = state.workspaces[fromId];
+  const target = state.workspaces[targetId];
+  if (!from || !target) throw new Error('ワークスペースが見つかりません');
+  if ((await windowForWorkspace(fromId)) !== null || await parkedLocation(fromId)) {
+    throw new Error('開いているワークスペースのタブは、開いているタブの一覧から選んで移動してください');
+  }
+  const { kept, taken } = takeSavedTabs(from.tabs, picks);
+  if (!taken.length) throw new Error('移動するタブがありません（一覧が古くなっています）');
+  const dest = await destinationOf(targetId);
+  if (dest.windowId !== null) switchingWindows.add(dest.windowId);
+  let failure = null;
+  try {
+    await mutate((s) => {
+      const ws = s.workspaces[fromId];
+      if (!ws) return;
+      ws.tabs = kept;
+      ws.updatedAt = Date.now();
+    });
+    if (dest.mode === 'saved') {
+      await mutate((s) => {
+        const ws = s.workspaces[targetId];
+        if (!ws) throw new Error('移動先のワークスペースが見つかりません');
+        ws.tabs = appendSavedTabs(ws.tabs, taken).tabs;
+        ws.updatedAt = Date.now();
+      });
+    } else {
+      const created = await createSavedTabs(dest.windowId, taken);
+      if (dest.mode === 'parked' && created.length) await addToParkedGroup(dest.groupId, created);
+      // discard するとタブの ID が変わるので、グループに入れ終えてから
+      if (state.settings.lazyRestore) await enqueueDiscard(created.map((t) => t.id));
+    }
+  } catch (e) {
+    failure = e;
+  } finally {
+    if (dest.windowId !== null) switchingWindows.delete(dest.windowId);
+  }
+  if (dest.windowId !== null) await snapshotWindow(dest.windowId);
+  if (failure) throw failure;
+  return { moved: taken.length, mode: dest.mode, workspaceName: target.name };
 }
 
 /**

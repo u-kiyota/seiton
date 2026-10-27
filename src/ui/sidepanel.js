@@ -2,7 +2,7 @@ import {
   tabUrl, normalizeUrlForMatch, isManagerUrl, isWorkspaceTabUrl, matchesQuery,
   TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl, workspaceHotkey, hotkeyToIndex,
   autoCloseDaysFrom, autoCloseDuration, formatAutoCloseDuration, AUTO_CLOSE_UNIT_LABELS,
-  autoCloseExcludeMatch, excludePatternsForUrl, resolveSwitchMode, switchKeyHints, SWITCH_MODE_SHORT,
+  autoCloseExcludeMatch, excludePatternsForUrl, resolveSwitchMode, switchKeyHints, SWITCH_MODE_SHORT, moveTabsMessage,
 } from '../lib/core.js';
 import { iconPicker, makeWorkspaceDraggable, makeWorkspaceDropTarget } from './manage.js';
 import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt, confirmButton } from './api.js';
@@ -418,12 +418,17 @@ function renderList() {
   }));
 }
 
-function entryRow({ url, title, sub, extra, active, discarded, onOpen, onClose, closeTitle = 'タブを閉じる' }) {
+/** check: { on, onToggle(e) } を渡すと行の先頭にチェックボックス（別のワークスペースへの移動用。issue #33） */
+function entryRow({ url, title, sub, extra, active, discarded, check, onOpen, onClose, closeTitle = 'タブを閉じる' }) {
   return h('div', {
-    class: `entry${active ? ' on' : ''}${discarded ? ' discarded' : ''}`,
+    class: `entry${active ? ' on' : ''}${discarded ? ' discarded' : ''}${check?.on ? ' checked' : ''}`,
     title: url || '',
     onclick: () => onOpen && attempt(onOpen),
   },
+    check ? h('input', {
+      type: 'checkbox', class: 'check', checked: !!check.on, title: '選択して別のワークスペースへ移動（Shift+クリックで範囲）',
+      onclick: (e) => { e.stopPropagation(); check.onToggle(e); },
+    }) : null,
     url ? fav(url) : null,
     h('span', { class: 'title ellipsis' }, title || url || '（無題）'),
     sub ? h('span', { class: 'host muted small ellipsis' }, sub) : null,
@@ -601,11 +606,15 @@ function renderTabs() {
   const ws = data.state.workspaces[selectedId];
   if (!view) {
     $('tabTitle').textContent = 'タブ';
+    renderTabActions(null, []);
     body.replaceChildren(h('div', { class: 'empty' }, '読み込み中…'));
     return;
   }
   if (view.mode === 'saved') {
     const tabs = view.tabs || [];
+    syncCheckedScope(`${selectedId}:saved`);
+    const keys = tabs.map((_t, i) => i);
+    renderTabActions(view, keys);
     $('tabTitle').textContent = `保存済みのタブ（${tabs.length}）`;
     if (!tabs.length) {
       body.replaceChildren(h('div', { class: 'empty' }, '保存されているタブはありません。'));
@@ -613,7 +622,7 @@ function renderTabs() {
     }
     const nodes = [h('div', { class: 'hint' }, 'まだ開いていません。行を開くと、この 1 件だけを現在のウィンドウで開きます。色の付いた行は、ワークスペースを開いたときに前面になるタブです。')];
     let lastGroup;
-    for (const t of tabs) {
+    tabs.forEach((t, i) => {
       if (t.groupKey !== lastGroup) {
         lastGroup = t.groupKey;
         if (t.groupKey) nodes.push(h('div', { class: 'group-label' }, view.groups?.[t.groupKey]?.title || 'グループ'));
@@ -623,9 +632,10 @@ function renderTabs() {
         title: (t.pinned ? '📌 ' : '') + (t.title || t.url),
         sub: hostOf(t.url),
         active: !!t.active,
+        check: { on: checked.has(i), onToggle: (e) => toggleChecked(keys, i, e) },
         onOpen: () => openSingle(t.url),
       }));
-    }
+    });
     body.replaceChildren(...nodes);
     return;
   }
@@ -634,6 +644,9 @@ function renderTabs() {
     .filter((t) => !isManagerUrl(tabUrl(t)) && !isWorkspaceTabUrl(tabUrl(t)))
     .sort((a, b) => a.index - b.index);
   const groupById = Object.fromEntries((view.groups || []).map((g) => [g.id, g]));
+  syncCheckedScope(`${selectedId}:live:${view.windowId}`);
+  const keys = tabs.map((t) => t.id);
+  renderTabActions(view, keys);
   $('tabTitle').textContent = `${view.parked ? '休止中のタブ' : '開いているタブ'}（${tabs.length}）`;
   if (!tabs.length) {
     body.replaceChildren(h('div', { class: 'empty' }, '開いているタブはありません。'));
@@ -645,7 +658,7 @@ function renderTabs() {
     nodes.push(h('div', { class: 'hint' }, `${view.windowId === windowId ? 'このウィンドウ' : '別ウィンドウ'}で休止中（折りたたんだグループ「⏸ …」）のタブです。行を開くとそのタブへ移動します（ワークスペースは切り替わりません）。`));
   } else if (view.windowId !== windowId) nodes.push(h('div', { class: 'hint' }, '別ウィンドウで開いています。行を開くとそのタブへ移動します。'));
   let lastGroup;
-  for (const t of tabs) {
+  tabs.forEach((t, i) => {
     const gid = t.groupId ?? -1;
     if (gid !== lastGroup) {
       lastGroup = gid;
@@ -671,11 +684,95 @@ function renderTabs() {
       extra: exclude,
       active: t.active,
       discarded: t.discarded,
+      check: { on: checked.has(t.id), onToggle: (e) => toggleChecked(keys, i, e) },
       onOpen: () => focusTab(t),
       onClose: async () => { await chrome.tabs.remove(t.id); },
     }), t));
-  }
+  });
   body.replaceChildren(...nodes);
+}
+
+// ---- タブの選択と別のワークスペースへの移動（issue #33） ----
+
+// チェックしたタブ。開いているタブはタブ ID、保存済みタブは一覧での位置（index）。scope（ワークスペース・表示モード）が変わったら捨てる
+let checked = new Set();
+let checkedScope = '';
+let lastCheckedIndex = -1;
+let moveDest = ''; // 最後に選んだ移動先（描き直しても保つ）
+
+function syncCheckedScope(scope) {
+  if (scope === checkedScope) return;
+  checkedScope = scope;
+  checked.clear();
+  lastCheckedIndex = -1;
+}
+
+/** 行のチェックボックス。Shift+クリックで前回チェックした行からの範囲をまとめて同じ状態にする */
+function toggleChecked(keys, index, e) {
+  const on = !checked.has(keys[index]);
+  const from = e?.shiftKey && lastCheckedIndex >= 0 ? Math.min(lastCheckedIndex, index) : index;
+  const to = e?.shiftKey && lastCheckedIndex >= 0 ? Math.max(lastCheckedIndex, index) : index;
+  for (let i = from; i <= to; i++) {
+    if (on) checked.add(keys[i]);
+    else checked.delete(keys[i]);
+  }
+  lastCheckedIndex = index;
+  renderTabs();
+}
+
+/** タブ一覧の上のバー: 選択件数・すべて選択 / 解除・移動先・移動 */
+function renderTabActions(view, keys) {
+  const bar = $('tabActions');
+  $('tabs').classList.toggle('selecting', checked.size > 0);
+  if (!checked.size || !view) {
+    bar.hidden = true;
+    bar.replaceChildren();
+    return;
+  }
+  const { state } = data;
+  const candidates = state.workspaceOrder.filter((id) => id !== selectedId);
+  if (!candidates.some((id) => id === moveDest)) moveDest = candidates[0] || '';
+  const dest = h('select', { title: '移動先のワークスペース' }, candidates.map((id) => {
+    const w = state.workspaces[id];
+    const where = windowOf(id) === windowId ? '（このウィンドウ）' : windowOf(id) != null ? '（別ウィンドウ）' : parkedOf(id) ? '（休止中）' : '';
+    return h('option', { value: id, selected: id === moveDest }, `${w.icon ? w.icon + ' ' : ''}${w.name}${where}`);
+  }));
+  dest.addEventListener('change', () => { moveDest = dest.value; });
+  const move = h('button', {
+    class: 'primary', type: 'button', disabled: !candidates.length,
+    title: '移動先が開いていればそのウィンドウへ移し（読み込み直さない）、休止中なら休止グループに加え、閉じていれば保存タブに加えてタブを閉じます',
+    onclick: () => moveChecked(view, dest.value),
+  }, '移動');
+  // replaceChildren(null) は "null" という文字列になるので、要素だけを渡す
+  bar.replaceChildren(...[
+    h('span', { class: 'muted' }, `${checked.size} 件を選択`),
+    checked.size < keys.length ? h('button', { type: 'button', onclick: () => { for (const k of keys) checked.add(k); renderTabs(); } }, 'すべて選択') : null,
+    h('button', { type: 'button', onclick: () => { checked.clear(); lastCheckedIndex = -1; renderTabs(); } }, '解除'),
+    h('span', { class: 'muted small', style: { marginLeft: '6px' } }, '移動先'),
+    dest,
+    move,
+    candidates.length ? null : h('span', { class: 'muted small' }, '他のワークスペースがありません'),
+  ].filter(Boolean));
+  bar.hidden = false;
+}
+
+/** チェックしたタブを移動先のワークスペースへ移す。開いているタブは ID で、保存済みタブは位置と URL で指定する */
+function moveChecked(view, workspaceId) {
+  if (!workspaceId || !checked.size) return;
+  return attempt(async () => {
+    let res;
+    if (view.mode === 'saved') {
+      const picks = [...checked].map((i) => ({ index: i, url: view.tabs[i]?.url })).filter((p) => p.url);
+      res = await call('moveSavedTabs', { fromWorkspaceId: selectedId, picks, workspaceId });
+    } else {
+      res = await call('moveTabs', { tabIds: [...checked], workspaceId });
+    }
+    checked.clear();
+    lastCheckedIndex = -1;
+    toast(moveTabsMessage(res));
+    render();
+    attempt(refreshDetail);
+  });
 }
 
 // ---- モーダル: ワークスペース作成 ----

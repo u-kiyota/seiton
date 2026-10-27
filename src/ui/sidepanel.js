@@ -32,6 +32,19 @@ let bmData;
 
 let moving = 0; // 実行中の「移動」操作の数。完了を待ってから閉じる
 let closeWhenIdle = false;
+// パネルの外にフォーカスが移っても閉じない区間の数（Chrome の権限ダイアログなど）。0 に戻ったらパネルにフォーカスを戻す
+let holdOpen = 0;
+
+/** fn の間はフォーカスを失ってもパネルを閉じない（権限ダイアログがパネルの前に出るため）。終わったらパネルを前面に戻す */
+async function holdPanel(fn) {
+  holdOpen++;
+  try {
+    return await fn();
+  } finally {
+    holdOpen--;
+    if (!holdOpen && selfWindowId != null) chrome.windows.update(selfWindowId, { focused: true }).catch(() => {});
+  }
+}
 
 function closePanel() {
   if (selfWindowId == null) return;
@@ -779,7 +792,8 @@ function cookieToggleButton(cookie, isolating) {
   return h('button', {
     type: 'button', class: 'primary', title: 'Cookie を読み書きする権限（すべてのサイト）の確認が出ます',
     onclick: () => attempt(async () => {
-      const granted = await chrome.permissions.request(COOKIE_PERMISSION);
+      // 権限ダイアログでパネルがフォーカスを失っても閉じない（閉じるとリクエストごと消える）
+      const granted = await holdPanel(() => chrome.permissions.request(COOKIE_PERMISSION));
       if (!granted) {
         toast('権限が許可されなかったため ON にできません', true);
         return;
@@ -1564,7 +1578,7 @@ document.addEventListener('keydown', (e) => {
 // フォーカスを失ったら閉じる（モーダル的な挙動）。一瞬だけ外れることがあるので少し待ってから確かめる
 window.addEventListener('blur', (e) => {
   if (e.target !== window) return;
-  setTimeout(() => { if (!document.hasFocus()) closePanel(); }, 150);
+  setTimeout(() => { if (!document.hasFocus() && !holdOpen) closePanel(); }, 150);
 });
 // 対象ウィンドウが閉じられたらパネルも閉じる
 chrome.windows.onRemoved.addListener((id) => { if (id === windowId) closePanel(); });

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>seiton</title>
+  <link rel="icon" id="favicon" href="../../icons/icon32.png">
+  <link rel="stylesheet" href="common.css">
+  <link rel="stylesheet" href="sidepanel.css">
+  <link rel="stylesheet" href="wstab.css">
+</head>
+<body>
+  <header class="appbar">
+    <div class="brand"><img src="../../icons/logo.png" alt="" width="40" height="40">seiton</div>
+    <span class="grow"></span>
+    <button id="openManager" class="primary" type="button" title="管理パネルを開く (Alt+Shift+K)">管理パネルを開く</button>
+    <button id="options" class="icon" type="button" title="設定">⚙</button>
+  </header>
+
+  <main class="wstab">
+    <section id="current" class="current"></section>
+
+    <div class="wstab-cols">
+      <section class="col">
+        <h2 class="col-title" id="bmTitle">ブックマーク</h2>
+        <div id="bookmarks" class="col-body"></div>
+      </section>
+      <section class="col">
+        <h2 class="col-title">ワークスペース</h2>
+        <div id="list" class="col-body"></div>
+      </section>
+    </div>
+    <p class="muted small foot">このタブはウィンドウ左端の色付きラベル（タブグループ）の中にあり、今のワークスペースを示します。表示しないようにするには設定の「ワークスペースタブ」を OFF にしてください。</p>
+  </main>
+
+  <script type="module" src="wstab.js"></script>
+</body>
+</html>

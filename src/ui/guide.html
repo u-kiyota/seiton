@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>seiton の使い方</title>
+  <link rel="icon" href="../../icons/icon32.png">
+  <link rel="stylesheet" href="common.css">
+  <style>
+    body { font-size: 14px; line-height: 1.7; }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+    .hero { display: flex; align-items: center; gap: 18px; margin-bottom: 8px; }
+    .hero img { width: 72px; height: 72px; border-radius: 16px; display: block; flex: none; }
+    .hero h1 { font-size: 26px; margin: 0; }
+    .hero p { margin: 4px 0 0; color: var(--fg-sub); }
+    nav.toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 20px 0 8px; }
+    nav.toc a {
+      font-size: 12px; padding: 3px 10px; border-radius: 12px; text-decoration: none;
+      background: var(--bg-sub); color: var(--fg); border: 1px solid var(--border);
+    }
+    nav.toc a:hover { background: var(--bg-hover); }
+    h2 { font-size: 19px; margin: 40px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+    h3 { font-size: 15px; margin: 22px 0 6px; }
+    p { margin: 6px 0; }
+    ul, ol { padding-left: 1.5em; margin: 6px 0; }
+    li { margin: 3px 0; }
+    a { color: var(--accent); }
+    kbd {
+      display: inline-block; font: 12px/1 ui-monospace, Consolas, monospace;
+      padding: 3px 6px; border-radius: 5px; border: 1px solid var(--border);
+      border-bottom-width: 2px; background: var(--bg-sub); white-space: nowrap;
+    }
+    code { background: var(--bg-sub); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+    .steps { counter-reset: step; list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 10px; }
+    .steps li {
+      position: relative; padding: 12px 14px 12px 52px; border: 1px solid var(--border);
+      border-radius: 10px; background: var(--bg-sub);
+    }
+    .steps li::before {
+      counter-increment: step; content: counter(step);
+      position: absolute; left: 14px; top: 12px; width: 26px; height: 26px; border-radius: 50%;
+      background: var(--accent); color: #fff; font-weight: 600; display: flex; align-items: center; justify-content: center;
+    }
+    .steps li strong { display: block; margin-bottom: 2px; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin: 12px 0; }
+    .card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--bg-sub); }
+    .card h3 { margin: 0 0 6px; font-size: 15px; }
+    .card p { margin: 0; color: var(--fg-sub); font-size: 13px; }
+    table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+    th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--fg-sub); font-weight: 600; white-space: nowrap; }
+    td:first-child { white-space: nowrap; }
+    .note {
+      border-left: 4px solid var(--accent); background: var(--bg-sub); padding: 10px 14px;
+      border-radius: 0 8px 8px 0; margin: 12px 0; font-size: 13px;
+    }
+    .note.warn { border-left-color: #f9ab00; }
+    .btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+    .btns button { padding: 7px 14px; }
+    footer { margin-top: 48px; color: var(--fg-sub); font-size: 12px; }
+    @media (max-width: 600px) {
+      .hero { flex-direction: column; align-items: flex-start; }
+      table, thead, tbody, tr, th, td { display: block; }
+      thead { display: none; }
+      tr { border-bottom: 1px solid var(--border); padding: 6px 0; }
+      th, td { border: none; padding: 2px 0; white-space: normal; }
+      td:first-child { font-weight: 600; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <img src="../../icons/logo.png" alt="">
+    <div>
+      <h1>seiton の使い方</h1>
+      <p>ワークスペース単位でタブとブックマークを整理する Chrome 拡張機能です。このページは設定画面からいつでも開けます。</p>
+    </div>
+  </div>
+
+  <div class="btns">
+    <button id="openManager" class="primary">管理パネルを開く</button>
+    <button id="openOptions">設定を開く</button>
+    <button id="openShortcuts">ショートカットを変更</button>
+  </div>
+
+  <nav class="toc">
+    <a href="#start">まず最初に</a>
+    <a href="#concepts">基本の考え方</a>
+    <a href="#manager">管理パネル</a>
+    <a href="#wstab">ワークスペースタブ</a>
+    <a href="#palette">クイックパレット</a>
+    <a href="#bookmarks">ブックマーク</a>
+    <a href="#shortcuts">ショートカット</a>
+    <a href="#memory">メモリ</a>
+    <a href="#settings">設定・管理</a>
+    <a href="#faq">よくある質問</a>
+  </nav>
+
+  <h2 id="start">まず最初に（3 ステップ）</h2>
+  <ol class="steps">
+    <li>
+      <strong>管理パネルを開く</strong>
+      <span data-key="open-side-panel">Alt+Shift+K</span> を押すか、ツールバーの seiton アイコン → 右上の ☰ を押します。
+      今のウィンドウの上に一時的なウィンドウとして開きます（タブは増えません）。
+    </li>
+    <li>
+      <strong>最初のワークスペースを作る</strong>
+      「ワークスペース」見出し右の ＋ を押し、名前（例: 案件A）とアイコンを決めます。
+      すでにタブを開いているなら「今開いているタブをこのワークスペースにする」を選ぶと、そのまま引き継げます。
+    </li>
+    <li>
+      <strong>2 つ目を作って切り替えてみる</strong>
+      もう 1 つ作ると、今のタブは閉じて新しいワークスペースに切り替わります。
+      一覧の行をクリック、または <span data-key="_execute_action">Alt+K</span> → <kbd>&gt;</kbd> で名前を打つと行き来できます。
+      閉じたタブは失われず、戻ると復元されます。
+    </li>
+  </ol>
+  <div class="note">
+    ツールバーのパズルアイコンから seiton を<strong>ピン留め</strong>しておくと、ワンクリックでクイックパレットが開けます。
+    ピン留めした seiton アイコンは、ウィンドウごとに今のワークスペースの色とアイコン（絵文字が無ければ名前の頭文字）に変わり、ホバーすると名前が出るので、管理パネルを開かなくても今どこにいるか分かります（未割り当てのウィンドウでは元のアイコン）。
+  </div>
+
+  <h2 id="concepts">基本の考え方</h2>
+  <div class="cards">
+    <div class="card">
+      <h3>🗂 ワークスペース</h3>
+      <p>「案件A」「調べもの」など、タブのまとまり。1 つのウィンドウには 1 つのワークスペースだけが表示され、切り替えると他のワークスペースのタブは閉じて保存されます。</p>
+    </div>
+    <div class="card">
+      <h3>🔖 接続フォルダ</h3>
+      <p>ワークスペースごとに結び付けたブックマークフォルダ。そのワークスペースで保存したブックマークはここに入り、パレットや管理パネルから検索できます。</p>
+    </div>
+    <div class="card">
+      <h3>🏷 セッション</h3>
+      <p>「AWS 本番」「AWS 開発」「個人」のように、ワークスペースがどのアカウントで使うものかを表します。同じセッションのワークスペースを一括で開けます。セッションごとにログイン状態（Cookie）が分かれ、Chrome のプロファイルを切り替えるように使えます。</p>
+    </div>
+  </div>
+  <div class="note">
+    <strong>なぜタブを閉じるの？</strong> Chrome にはタブを「隠す」API が無いため、切り替え時はタブを閉じて開き直します。
+    URL・タイトル・固定・タブグループ・アクティブタブは保存され、戻ると復元されます。
+    フォームの入力途中の内容やスクロール位置は引き継がれないので、入力中のページがあるときは注意してください。
+  </div>
+
+  <h2 id="manager">管理パネル <small class="muted" data-key="open-side-panel">Alt+Shift+K</small></h2>
+  <p>ワークスペース一覧・接続フォルダのブックマーク・開いているタブを並べて表示する、seiton のメイン画面です。呼び出したウィンドウの上に一時的なウィンドウとして重なって開き、タブとしては残りません。「このウィンドウ」は呼び出したウィンドウを指します。</p>
+  <p>ワークスペースの切り替え・タブやブックマークを開くなど移動する操作をすると、自動で閉じます。<kbd>Esc</kbd>（入力中の検索や編集・ダイアログがあれば先にそれを閉じる）、他のウィンドウをクリックしてフォーカスを外す、もう一度 <span data-key="open-side-panel">Alt+Shift+K</span> を押す、でも閉じます。</p>
+
+  <h3>上部の検索ボックス</h3>
+  <ul>
+    <li>ワークスペース（名前・セッション名・アイコン）、すべての接続フォルダのブックマーク、Chrome の閲覧履歴をまとめて検索します</li>
+    <li><kbd>↑</kbd><kbd>↓</kbd> で選択、<kbd>Enter</kbd> で開く。ワークスペースはこのウィンドウを切り替え、ブックマークはそのワークスペースが開いているウィンドウで開きます</li>
+    <li><kbd>Shift</kbd>+<kbd>Enter</kbd>: ワークスペースは新しいウィンドウで、URL はこのウィンドウで開く</li>
+    <li><kbd>Ctrl</kbd>+<kbd>Enter</kbd>: ワークスペースを「休止して切替」。今のワークスペースのタブを閉じずに、折りたたんだタブグループ「⏸ 名前」として同じウィンドウに残してから切り替える（入力途中のページを失わない）。休止中のワークスペースを選ぶとグループを解いて元に戻す。一覧の行の ⏸ / ⧉ ボタンでも同じ操作ができる</li>
+    <li><strong>既定の切替方法</strong>: 設定・管理の「表示・操作」で、<kbd>Enter</kbd>・行クリック・番号キー・クイックパレットの <kbd>Enter</kbd> で使う方法を「切替（今のタブを閉じる）/ 休止して切替 / 新しいウィンドウで開く」から選べます。<kbd>Ctrl</kbd>+<kbd>Enter</kbd> は休止との入れ替え（既定が休止なら閉じる切替）、<kbd>Shift</kbd>+<kbd>Enter</kbd> は新しいウィンドウとの入れ替えになります</li>
+    <li><kbd>/</kbd> でどこからでも検索ボックスにフォーカス、<kbd>Esc</kbd> で検索語を消す（空ならパネルを閉じる）</li>
+  </ul>
+
+  <h3>ワークスペース一覧</h3>
+  <table>
+    <thead><tr><th>操作</th><th>動作</th></tr></thead>
+    <tbody>
+      <tr><td>＋（見出し右）</td><td>名前・アイコン・使うセッション・ブックマークフォルダ（新しく作成 / 接続しない / 既存のフォルダを選択）を入力して作成。作成後、このウィンドウがそのワークスペースに切り替わります</td></tr>
+      <tr><td>行をクリック</td><td>このウィンドウをそのワークスペースに切り替え。別ウィンドウで既に開いていればそちらにフォーカスします。右側にブックマークとタブ一覧を表示</td></tr>
+      <tr><td>行をドラッグ</td><td>他の行の上（前）/ 下（後）に落として並び替え。番号キーの割り当てもこの順になります</td></tr>
+      <tr><td>⧉</td><td>新しいウィンドウで開く</td></tr>
+      <tr><td>✎</td><td>名前・色・アイコン（絵文字を選ぶか任意入力、「なし」で色のドット）・セッション・ブックマークフォルダの接続・タブの自動クローズ（設定に従う / 無効 / 有効と期間）を編集。↑↓ での並び替え・削除もここから。複数のワークスペースをまとめて変えるなら、左下の「⚙ 設定・管理」→ 「ワークスペース」</td></tr>
+      <tr><td>ブックマーク / 保存済みタブの行</td><td>その 1 件だけを開く（ワークスペース全体は開かない）</td></tr>
+      <tr><td>よく開くタブ（ブックマークの下）</td><td>ブックマークするほどではないが、よく開くページの置き場です（ワークスペースごと）。開いているタブ・保存済みタブ・ブックマークの行をここにドラッグ＆ドロップして登録。行をクリックするとそのページを開きます（既に開いていればそのタブへ）。× で外す、行をドラッグして並び替え。検索ボックスとクイックパレットにも出ます</td></tr>
+      <tr><td>開いているタブの行</td><td>そのタブへ移動。× で閉じる。🛡 で自動クローズから除外（除外中は「除外」バッジ。クリックで解除）</td></tr>
+      <tr><td>タブの行のチェックボックス</td><td>行にマウスを乗せると出ます。複数のタブを選んで（<kbd>Shift</kbd>+クリックで範囲。1 件でも選んでいる間は行のどこをクリックしても選択 / 解除になります）、一覧の上に出るバーで移動先のワークスペースを選び「移動」。移動先が開いていればそのウィンドウへタブを移し（読み込み直しません）、休止中なら休止グループに加え、開いていなければ保存タブに加えて元のタブを閉じます。開いていないワークスペースの「保存済みのタブ」も同じように移せます</td></tr>
+    </tbody>
+  </table>
+
+  <h3>左下のボタン</h3>
+  <ul>
+    <li><strong>⚙ 設定・管理</strong>: 設定・管理画面（下記）をこのウィンドウのタブで開きます（パネルは閉じます）。自動クローズで閉じたタブがあると件数のバッジが付きます</li>
+    <li><strong>💤 メモリ解放</strong>: このウィンドウの使っていないタブのメモリを今すぐ解放します（タブは残ります）</li>
+    <li><strong>? 使い方</strong>: このページを開きます</li>
+  </ul>
+  <p>ワークスペースに割り当てていないウィンドウでは「今のタブをワークスペースとして保存」できます。</p>
+
+  <h2 id="wstab">ワークスペースタブ</h2>
+  <p>ワークスペースのウィンドウでは、タブ列の左端（固定タブがあればその直後）に、ワークスペースの色で「絵文字 名前」のラベルが常に表示されます。どのウィンドウが今どのワークスペースか、タブ列を見るだけで分かります。</p>
+  <ul>
+    <li>ラベルは seiton のページ 1 枚だけが入ったタブグループで、ふだんは折りたたまれています。クリックすると開き、中のタブで次のことができます
+      <ul>
+        <li>今のワークスペース（アイコン・名前・セッション）の確認</li>
+        <li>全ワークスペースの一覧: クリックでこのウィンドウを切り替え、⧉ で新しいウィンドウで開く（別ウィンドウで開いていればそちらへ移動）</li>
+        <li>「管理パネルを開く」</li>
+        <li>接続フォルダのブックマーク（クリックで新しいタブで開く）</li>
+      </ul>
+    </li>
+    <li>ワークスペースを切り替えると、ラベルの色と名前が切り替え先のものに変わります。✎ で名前・色・アイコンを変えたときも追従します</li>
+    <li>閉じたりグループから外したりしても自動で元に戻ります。表示したくない場合は設定の「ワークスペースタブ」を OFF にしてください</li>
+    <li>このタブとラベルのグループはワークスペースに保存されず、あなた自身のタブグループの保存・復元には影響しません。パレットや管理パネルのタブ一覧にも出ません</li>
+  </ul>
+
+  <h2 id="palette">クイックパレット <small class="muted" data-key="_execute_action">Alt+K</small></h2>
+  <p>今のタブ・接続フォルダのブックマーク・ワークスペースをインクリメンタル検索して、キーボードだけで移動するための小さなウィンドウです。</p>
+  <table>
+    <thead><tr><th>キー</th><th>動作</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>↑</kbd> <kbd>↓</kbd> / <kbd>Enter</kbd></td><td>選択 / 開く</td></tr>
+      <tr><td><kbd>&gt;</kbd> を先頭に入力、または <kbd>Tab</kbd></td><td>ワークスペースだけを検索するモードに切り替え（全角 <kbd>＞</kbd> も可）</td></tr>
+      <tr><td>タブを選んで <kbd>Delete</kbd></td><td>そのタブを閉じる</td></tr>
+      <tr><td>よく開くタブを <kbd>Enter</kbd></td><td>管理パネルの「よく開くタブ」に置いたページを開く（置き場が空なら出ません）。<kbd>Shift</kbd>+<kbd>Enter</kbd> で現在のタブで開く</td></tr>
+      <tr><td>ブックマークを <kbd>Enter</kbd></td><td>既に開いていればそのタブへ、無ければ新しいタブで開く。<kbd>Shift</kbd>+<kbd>Enter</kbd> で現在のタブで開く</td></tr>
+      <tr><td>ワークスペースを <kbd>Enter</kbd></td><td>設定の既定の切替方法で開く（既定ではこのウィンドウを切り替え）。<kbd>Shift</kbd>+<kbd>Enter</kbd> で新しいウィンドウ、<kbd>Ctrl</kbd>+<kbd>Enter</kbd> で今のタブを休止（折りたたんだグループに残す）して切り替え（既定が休止なら逆に閉じる切替）</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="bookmarks">ブックマーク</h2>
+  <ul>
+    <li>ワークスペースごとに任意のブックマークフォルダを「接続」できます（新規作成 or 既存フォルダを選択）。新規作成したフォルダは「その他のブックマーク」の中の <code>Workspaces</code> フォルダに入ります（親フォルダ名は設定で変更可）</li>
+    <li>ワークスペースを表示中に <kbd>Ctrl</kbd>+<kbd>D</kbd> や ☆ で作ったブックマークは、自動で接続フォルダへ移動します（設定で OFF にできます）</li>
+    <li><span data-key="save-bookmark">Alt+Shift+D</span> で、今のタブを接続フォルダに直接保存。拡張アイコンのバッジに <code>+</code>（保存した）、<code>=</code>（保存済みだった）、<code>!</code>（フォルダ未接続などで保存できない。理由はアイコンのツールチップ）が出ます</li>
+    <li>ブックマークマネージャーや他端末からの同期で作られたブックマークは移動しません</li>
+    <li>ワークスペースを削除してもブックマークフォルダと中身は残ります。逆に接続中のフォルダを削除すると、接続だけが自動で解除されます</li>
+    <li><strong>よく開くタブ</strong>: ブックマークするほどではないが、よく開くページ（トップページはブックマークしているが、最近よく開く個別のページなど）は、管理パネルのブックマークの下の「よく開くタブ」にドラッグ＆ドロップで置いておけます。ブックマークは作らず seiton の中だけに保存され、同期・エクスポートの対象になります</li>
+  </ul>
+
+  <h2 id="shortcuts">ショートカット</h2>
+  <p>現在この Chrome に割り当てられているキーです（<button id="openShortcuts2" class="icon" style="padding:0;color:var(--accent);text-decoration:underline">chrome://extensions/shortcuts</button> で変更できます）。</p>
+  <table>
+    <thead><tr><th>キー</th><th>動作</th></tr></thead>
+    <tbody id="commands"></tbody>
+  </table>
+  <div class="note">
+    <kbd>Alt</kbd>+<kbd>K</kbd> などが IME や他のアプリと衝突する場合はショートカット設定で変更してください。
+    「前のワークスペースへ」は既定キーが無いので、使う場合はここで割り当てます。
+  </div>
+
+  <h2 id="memory">メモリ</h2>
+  <p>ワークスペースを切り替えると他のワークスペースのタブは閉じるため、同時に開いているタブの数そのものが減ります。これが一番大きなメモリ削減です。そのうえで次の 2 つを提供します。</p>
+  <ul>
+    <li><strong>遅延読み込み（既定 ON）</strong>: ワークスペースを開くとき、前面だったタブ 1 件だけを読み込み、他のタブはクリックした時点で読み込みます</li>
+    <li><strong>自動メモリ解放（既定 OFF）</strong>: 「N 分以上使っていないタブのメモリを確実に解放したい」場合だけ設定で有効化。固定タブと音声再生中のタブは対象外です</li>
+  </ul>
+  <div class="note">
+    推奨設定は、Chrome 標準の<strong>メモリセーバー</strong>（<button id="openPerf" class="icon" style="padding:0;color:var(--accent);text-decoration:underline">chrome://settings/performance</button>）を ON にして、seiton は既定のままにすることです。
+    メモリセーバーはメモリ逼迫度やフォーム入力中などの状態を見て解放するため、拡張から一律に解放するより安全です。
+  </div>
+
+  <h3>タブの自動クローズ（既定 OFF）</h3>
+  <p>最後に使ってから一定の期間（既定 7 日。分 / 時間 / 日で指定でき、最短 15 分）が経ったタブを、メモリ解放ではなく閉じます。設定画面の「タブの自動クローズ」で ON にし、期間を決めます。ワークスペースごとに、管理パネルの ✎ の「自動クローズ」で「設定に従う / 無効 / 有効（期間）」を選んで上書きできます。</p>
+  <ul>
+    <li>15 分ごとに確認します。固定タブ・音声再生中のタブ・各ウィンドウのアクティブなタブ・seiton 自身のページは閉じません。ウィンドウの最後の 1 枚も閉じません</li>
+    <li>閉じたタブはワークスペースの保存内容からも外れます。設定・管理画面の「閉じたタブ」（最大 500 件、一括削除可）や Chrome の履歴（Ctrl+H）から開き直せます</li>
+    <li>対象は今開いているタブだけです。開いていないワークスペースの保存済みタブは閉じられません</li>
+    <li><strong>閉じたくないページは除外できます</strong>。管理パネルの「開いているタブ」の行にマウスを乗せると出る 🛡 を押し、「このページ」（この URL とその下）か「このサイト全体」（サブドメインも含む）を選んで除外リストに追加します。除外中のタブには「除外」バッジが出て、クリックで解除できます。一覧の編集・削除は設定画面の「タブの自動クローズ」→「除外する URL」で。<code>github.com</code>（サイト全体）、<code>mail.google.com/mail</code>（ホスト + パスの先頭）、<code>https://example.com/docs</code>（URL の先頭）のように書け、<code>*</code> は任意の文字列です</li>
+  </ul>
+
+  <h2 id="settings">設定・管理</h2>
+  <p>管理パネル左下の「⚙ 設定・管理」、またはこのページ上部の「設定を開く」から開きます。左のサイドメニューで項目を切り替える 1 つの画面に、ワークスペース・セッション・閉じたタブの「管理」と各「設定」がまとまっています（<code>options.html#autoclose</code> のように URL で直接開くこともできます）。</p>
+  <h3>管理</h3>
+  <ul>
+    <li><strong>ワークスペース</strong>: 切り替えずに、すべてのワークスペースを一覧で編集します。行ごとに名前・セッション・自動クローズをその場で変更（▼ で色とアイコン）、⋮⋮ をドラッグして並び替え、「削除」で 1 件削除。チェックを入れた行には「セッション / 色 / 自動クローズ」を一括で適用したり、まとめて削除したりできます（ブックマークフォルダは消えません）。新規作成とブックマークフォルダの接続は管理パネルの ＋ / ✎ から</li>
+    <li><strong>セッション</strong>: セッションの追加・名前変更・削除、「全て開く」（そのセッションを使う全ワークスペースを別ウィンドウで一括オープン）。2 つ目のセッションを追加するときに Cookie の権限を求めます（未許可なら「権限を許可する」）。削除したセッションを使っていたワークスペースは別のセッションに付け替えられ、ワークスペース自体は消えません。下に「Cookie の状態」（今 Chrome に入っている Cookie がどのセッションのものか、各セッションの退避した Cookie の件数と主なサイト、退避した Cookie の削除）</li>
+    <li><strong>閉じたタブ</strong>: タブの自動クローズで閉じたタブの履歴（件数があればメニューに表示）。日付ごとにタイトル・ホスト・ワークスペース・閉じた時刻を並べ、行をクリックで開き直します（そのワークスペースが別ウィンドウで開いていればそちら、無ければこのウィンドウ。開き直した分は履歴から消えます）。タイトル・URL で絞り込み、× で 1 件ずつ、「すべて削除」で一括削除。最大 500 件で、古いものから消えます</li>
+  </ul>
+  <h3>設定</h3>
+  <ul>
+    <li><strong>表示</strong>: ウィンドウ左端のワークスペースタブ（色付きのグループ）の ON/OFF</li>
+    <li><strong>メモリ</strong>: 遅延読み込みの ON/OFF、自動メモリ解放までの分数</li>
+    <li><strong>タブの自動クローズ</strong>: 長期間使っていないタブを自動で閉じるかと、閉じるまでの期間（分 / 時間 / 日。ワークスペースごとの上書きは「ワークスペース」の節か管理パネルの ✎）、閉じない URL の除外リスト（追加・編集・削除）</li>
+    <li><strong>ブックマーク</strong>: Ctrl+D の自動移動の ON/OFF、ワークスペース用フォルダの親フォルダ名</li>
+    <li><strong>ショートカット</strong>: 現在の割り当ての確認と変更画面へのリンク</li>
+    <li><strong>同期</strong>: Chrome / Edge のアカウントの同期ストレージで、ワークスペース・セッション・設定を他のブラウザと合わせる ON/OFF、「今すぐ同期」、使用量と最後の同期、タブを省いたワークスペース、「同期データを削除」（下の「よくある質問」も参照）</li>
+    <li><strong>バックアップ</strong>: ワークスペース・セッション設定の JSON エクスポート / インポート（ブックマークそのもの・閉じたタブの履歴・退避した Cookie は含みません。インポートすると現在の設定はすべて置き換わります）</li>
+  </ul>
+
+  <h2 id="faq">よくある質問</h2>
+  <h3>Chrome を再起動したらどうなる？</h3>
+  <p>各ウィンドウに開いているタブの URL と、保存されたワークスペースの URL の重なりから、自動でウィンドウとワークスペースを対応付け直します。「前回開いていたページを開く」が OFF の場合は、最後に使っていたワークスペースを開きます。</p>
+  <h3>ワークスペースに割り当てていないウィンドウで、別のワークスペースに切り替えたら？</h3>
+  <p>そのウィンドウのタブは「未整理 M/D HH:mm」というワークスペースとして自動保存してから切り替えます。タブは失われません。</p>
+  <h3>同じワークスペースを 2 つのウィンドウで開ける？</h3>
+  <p>開けません。1 つのワークスペースは同時に 1 ウィンドウだけです。2 つ目を開こうとすると既存のウィンドウにフォーカスします。</p>
+  <h3>セッションを分けると Cookie やログイン状態も分かれる？</h3>
+  <p>分かれます。設定・管理画面の「セッション」で 2 つ目のセッションを追加するときに、Cookie を読み書きする権限（すべてのサイト）の確認が出ます。許可すると、別のセッションを使うワークスペースに切り替えるたびに、今の Cookie をそのセッション用に退避してすべて消し、切替先のセッションの Cookie を復元します。許可した時点の Cookie は、そのとき開いていたワークスペースのセッションのものになり、新しいセッションは未ログインの状態から始まります（そのセッションのワークスペースでログインすれば、以後そのセッション用に保たれます）。権限を拒否するとセッションは追加されません。後から chrome://extensions で権限を取り消すと分かれなくなり、設定・管理画面の「セッション」に「権限を許可する」が出ます（管理パネルの ✎ にもヒントが出ます）。</p>
+  <p>Chrome にはウィンドウやタブごとに Cookie を分ける仕組みが無いため、同時に使えるセッションは 1 つです。切替は全ウィンドウに及び、別のセッションのワークスペースを開いたままのウィンドウは、次にページを読み込んだときから切替先のログイン状態になります（混ざらないよう、そのセッションを使うウィンドウは閉じるか、同じセッションのワークスペースだけを並べて使うのがおすすめです）。localStorage などサイト側の他の保存領域は分けません。退避した Cookie は拡張の保存領域に平文で保存され、エクスポートには含まれません。完全に分けたい場合は、これまで通り Chrome のプロファイルを分けてください。</p>
+  <h3>別のブラウザ（別の PC）でも同じワークスペースを使える？</h3>
+  <p>使えます。設定・管理画面の「同期」を ON にすると、Chrome / Edge のアカウントに紐づく拡張用の同期ストレージ（<code>chrome.storage.sync</code>）にワークスペース・セッション・設定が保存され、同じアカウントでログインして「拡張機能」の同期が ON の他のブラウザにも届きます（seiton 独自のアカウントやサーバーはありません）。ON にした時点では、この端末の内容と同期ストレージの内容を合わせます（どちらも消えません）。以後は変更から約 10 秒でまとめて書き込まれ、他の端末の変更は届き次第取り込まれます。</p>
+  <p>同期ストレージは全体で 100 KB と小さいため、タブは URL とタイトルだけに縮めて圧縮して保存します。それでも収まらないときは、最後に開いた日時が古いワークスペースから順にタブだけを同期から省きます（名前・色・セッションなどは必ず同期され、省いたワークスペースは「同期」の節に表示されます）。退避した Cookie（ログイン状態）・閉じたタブの履歴・favicon・最終アクセス時刻は同期しません。接続したブックマークフォルダは「フォルダのパス」で同期し、他のブラウザに同じパスのフォルダがあれば接続します（Chrome のブックマーク同期でフォルダが届けば自動で接続されます）。</p>
+  <p>同じワークスペースを 2 台で同時に変えたときは更新時刻の新しい方が残ります。片方で削除してもう片方で変更した場合は、変更した方が残ります。「同期データを削除」は同期ストレージを空にしてこの端末の同期を OFF にするだけで、各端末のローカルの内容は消えません。</p>
+  <h3>開けないページがある</h3>
+  <p><code>chrome://</code> の一部や <code>file://</code> は拡張から開けないことがあり、その場合は復元をスキップします。シークレットウィンドウも対象外です。</p>
+  <div class="note warn">
+    フォームの入力途中の内容、ページ内のスクロール位置、タブごとの戻る / 進む履歴は、ワークスペース切り替えで引き継がれません。
+  </div>
+
+  <footer>このページは設定・管理画面の「使い方を見る」、管理パネル左下の「? 使い方」からいつでも開けます。</footer>
+</div>
+<script type="module" src="guide.js"></script>
+</body>
+</html>

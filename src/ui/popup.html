@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="../../icons/icon32.png">
+  <link rel="stylesheet" href="common.css">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="top">
+    <div class="row">
+      <img class="logo" src="../../icons/logo.png" alt="seiton" width="28" height="28">
+      <span id="wsDot" class="row"></span>
+      <b id="wsName" class="grow ellipsis"></b>
+      <button id="saveTab" title="現在のタブをワークスペースのブックマークフォルダに保存 (Alt+Shift+D)">★ 保存</button>
+      <button id="openPanel" class="icon" title="管理パネルを開く (Alt+Shift+K)">☰</button>
+    </div>
+    <input id="q" type="search" placeholder="タブ・ブックマーク・ワークスペースを検索（> でワークスペースのみ）" autofocus>
+  </div>
+  <div id="results"></div>
+  <div class="hint muted small">↑↓ 選択 / Enter 開く / Tab ワークスペース検索モード / Shift+Enter ブックマーク→このタブで開く・ワークスペース→新しいウィンドウ / Ctrl+Enter ワークスペース→今のタブを休止して切替 / Delete タブを閉じる</div>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

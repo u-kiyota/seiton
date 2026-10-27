@@ -1,0 +1,30 @@
+/* ワークスペースタブ。sidepanel.css（.appbar / .col / .entry / .ws-head など）を土台に、1 画面のダッシュボードとして並べる */
+body { height: auto; min-height: 100vh; }
+
+.wstab { width: 100%; max-width: 1080px; margin: 0 auto; padding: 24px 20px 32px; display: flex; flex-direction: column; gap: 20px; }
+
+.current {
+  display: flex; align-items: center; gap: 16px;
+  padding: 20px 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-sub);
+  border-left-width: 6px;
+}
+.current .big-icon {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 64px; height: 64px; border-radius: 16px; font-size: 38px; line-height: 1; color: #fff; font-weight: 700;
+}
+.current .big-icon.text { font-size: 30px; }
+.current .names { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.current .ws-name { font-size: 22px; font-weight: 700; margin: 0; }
+.current .ws-session { max-width: 240px; font-size: 12px; align-self: flex-start; }
+
+.wstab-cols {
+  display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 20px; align-items: start;
+}
+.wstab-cols .col { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.wstab-cols .col-body { overflow: visible; }
+.ws-head .actions { display: flex; gap: 2px; flex: none; }
+.foot { margin: 0; }
+
+@media (max-width: 760px) {
+  .wstab-cols { grid-template-columns: 1fr; }
+}

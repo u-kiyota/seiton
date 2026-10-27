@@ -1,0 +1,12 @@
+{
+  "name": "seiton",
+  "version": "1.0.1",
+  "private": true,
+  "type": "module",
+  "description": "ワークスペース単位でタブ・ブックマークを管理する Chrome 拡張",
+  "scripts": {
+    "test": "node --test",
+    "check": "node scripts/check.js",
+    "zip": "node scripts/build-zip.js"
+  }
+}

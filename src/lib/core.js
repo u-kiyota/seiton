@@ -15,6 +15,8 @@ export const DEFAULT_SETTINGS = {
   autoClose: Object.freeze({ enabled: false, days: 7 }),
   // 自動クローズの対象外にする URL のパターン（issue #20。書き方は autoCloseExcludeMatch 付近を参照）。凍結: 必ず新しい配列で置き換える
   autoCloseExclude: Object.freeze([]),
+  // 既定の切替方法（issue #37）: 管理パネルの Enter / 行クリック / 番号キー、パレットの Enter で使う。switch = 今のタブを閉じる / park = 休止 / window = 新しいウィンドウ
+  switchMode: 'switch',
   // ウィンドウの左端に、今のワークスペースを示す専用タブ（色付きのタブグループ）を置く
   workspaceTab: true,
   // chrome.storage.sync でワークスペース・セッション・設定を他のブラウザと同期する（issue #4）。端末ごとの設定で、この項目自体は同期しない
@@ -98,6 +100,7 @@ export function normalizeState(raw) {
   // 旧版の「Cookie の分離の ON / OFF」は廃止（権限があれば常に分ける）。残っていたら捨てる
   delete state.settings.cookieIsolation;
   state.settings.syncEnabled = state.settings.syncEnabled === true;
+  state.settings.switchMode = normalizeSwitchMode(state.settings.switchMode);
   state.settingsAt = Number.isFinite(raw.settingsAt) ? raw.settingsAt : 0;
   state.orderAt = Number.isFinite(raw.orderAt) ? raw.orderAt : 0;
   state.sessionOrder = (Array.isArray(raw.sessionOrder) ? raw.sessionOrder : []).filter((id) => sessions[id]);
@@ -983,12 +986,37 @@ export function parkedTabsForSnapshot(tabs, record) {
   return { tabs: out, groupsById };
 }
 
+/** 切替方法（issue #37）: switch = 今のタブを閉じて切替 / park = 休止して切替 / window = 新しいウィンドウで開く */
+export const SWITCH_MODES = ['switch', 'park', 'window'];
+export const SWITCH_MODE_LABELS = { switch: '切替（今のタブを閉じる）', park: '休止して切替（今のタブを残す）', window: '新しいウィンドウで開く' };
+/** ヒント用の短い表記 */
+export const SWITCH_MODE_SHORT = { switch: '切替', park: '休止して切替', window: '新しいウィンドウ' };
+
+export function normalizeSwitchMode(v) {
+  return SWITCH_MODES.includes(v) ? v : 'switch';
+}
+
 /**
- * 管理パネルの検索ボックス・一覧で、キーの組み合わせから切替方法を決める。
- * Ctrl（Mac は ⌘）= 休止して切替、Shift = 新しいウィンドウ、それ以外 = 切替（今のタブを閉じる）
+ * 管理パネルの検索ボックス・一覧・番号キー、パレットで、キーの組み合わせと既定の切替方法から実際の切替方法を決める。
+ * 修飾キー無し = 既定。Ctrl（Mac は ⌘）= 休止との入れ替え（既定が休止なら「閉じる切替」）。Shift = 新しいウィンドウとの入れ替え（既定が新しいウィンドウなら「閉じる切替」）。Ctrl が優先
  */
-export function switchModeFromKeys({ shiftKey = false, ctrlKey = false, metaKey = false } = {}) {
-  if (ctrlKey || metaKey) return 'park';
-  if (shiftKey) return 'window';
-  return 'switch';
+export function resolveSwitchMode({ shiftKey = false, ctrlKey = false, metaKey = false } = {}, defaultMode = 'switch') {
+  const d = normalizeSwitchMode(defaultMode);
+  if (ctrlKey || metaKey) return d === 'park' ? 'switch' : 'park';
+  if (shiftKey) return d === 'window' ? 'switch' : 'window';
+  return d;
+}
+
+/** 既定が「切替」のときの resolveSwitchMode（Ctrl = 休止、Shift = 新しいウィンドウ） */
+export function switchModeFromKeys(keys = {}) {
+  return resolveSwitchMode(keys, 'switch');
+}
+
+/** 既定の切替方法に応じた Enter / Shift+Enter / Ctrl+Enter の意味（ヒント・使い方の表示用） */
+export function switchKeyHints(defaultMode) {
+  return {
+    enter: resolveSwitchMode({}, defaultMode),
+    shift: resolveSwitchMode({ shiftKey: true }, defaultMode),
+    ctrl: resolveSwitchMode({ ctrlKey: true }, defaultMode),
+  };
 }

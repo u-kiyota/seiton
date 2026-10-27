@@ -1,7 +1,7 @@
 // サービスワーカー: Chrome のイベントを受けて状態を更新する唯一の書き手。
 // UI（管理パネル / ポップアップ / オプション）は runtime.sendMessage 経由でここに依頼する。
 import {
-  shouldRouteBookmark, neighborWorkspace, tabUrl, normalizeState, isManagerUrl, normalizeAutoClose,
+  shouldRouteBookmark, neighborWorkspace, tabUrl, normalizeState, isManagerUrl, normalizeAutoClose, normalizeSwitchMode,
   isWorkspaceTabUrl, workspaceTabEnabled, normalizeExcludePattern, normalizeExcludePatterns,
 } from './lib/core.js';
 import { openManager, toggleManager } from './lib/manager.js';
@@ -451,6 +451,7 @@ const mutating = {
       state.settingsAt = Date.now();
       state.settings.autoDiscardMinutes = Math.max(0, Number(state.settings.autoDiscardMinutes) || 0);
       state.settings.workspaceTab = state.settings.workspaceTab !== false;
+      state.settings.switchMode = normalizeSwitchMode(state.settings.switchMode);
       // 一部の項目だけの patch も受け付け、不正な日数（NaN・負など）は今の値を保つ
       if (patch && 'autoClose' in patch) {
         state.settings.autoClose = normalizeAutoClose({ ...prevAutoClose, ...patch.autoClose }, prevAutoClose);

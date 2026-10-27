@@ -2,7 +2,7 @@ import {
   tabUrl, normalizeUrlForMatch, isManagerUrl, isWorkspaceTabUrl, matchesQuery,
   TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl, workspaceHotkey, hotkeyToIndex,
   autoCloseDaysFrom, autoCloseDuration, formatAutoCloseDuration, AUTO_CLOSE_UNIT_LABELS,
-  autoCloseExcludeMatch, excludePatternsForUrl, switchModeFromKeys,
+  autoCloseExcludeMatch, excludePatternsForUrl, resolveSwitchMode, switchKeyHints, SWITCH_MODE_SHORT,
 } from '../lib/core.js';
 import { iconPicker, makeWorkspaceDraggable, makeWorkspaceDropTarget } from './manage.js';
 import { call, h, faviconUrl, COLOR_HEX, wsIcon, toast, attempt, confirmButton } from './api.js';
@@ -86,6 +86,23 @@ function parkedOf(wsId) {
   return data.parked?.[wsId] || null;
 }
 
+/** 既定の切替方法（設定・管理の「表示・操作」。issue #37） */
+function defaultSwitchMode() {
+  return data.state?.settings?.switchMode || 'switch';
+}
+
+/** キーの組み合わせと既定の切替方法から、実際の切替方法を決める */
+function keyMode(e) {
+  return resolveSwitchMode(e, defaultSwitchMode());
+}
+
+/** 検索ボックスのヒントを既定の切替方法に合わせる */
+function renderHint() {
+  const k = switchKeyHints(defaultSwitchMode());
+  const s = SWITCH_MODE_SHORT;
+  $('searchHint').textContent = `↑↓ 選択 / Enter ワークスペース→${s[k.enter]}・URL→開く / Shift+Enter ワークスペース→${s[k.shift]}・URL→このウィンドウ / Ctrl+Enter ワークスペース→${s[k.ctrl]} / Esc 検索を消す・閉じる / 1〜9/0 ${s[k.enter]}（Shift で ${s[k.shift]}）`;
+}
+
 function sessionName(id) {
   return data.state.sessions[id]?.name || '';
 }
@@ -103,6 +120,7 @@ async function load() {
   } catch { cookieInfo = null; }
   ensureSelection();
   syncBookmarkCache();
+  renderHint();
   render();
   await refreshDetail();
   // 検索結果を表示中なら最新の状態で描き直す
@@ -132,8 +150,8 @@ function switchHere(id, { park = false } = {}) {
 
 /** 切替方法（switchModeFromKeys の戻り値）に応じて開く: window = 新しいウィンドウ / park = 休止して切替 / switch = 切替 */
 function openWorkspaceBy(id, mode) {
-  if (mode === 'window') return openNewWindow(id);
   selectWorkspace(id);
+  if (mode === 'window') return openNewWindow(id);
   return switchHere(id, { park: mode === 'park' });
 }
 
@@ -150,10 +168,9 @@ function openNewWindow(id) {
   return attempt(() => moveAway(async () => (await call('openInNewWindow', { workspaceId: id }))?.windowId));
 }
 
-/** 一覧の行をクリック: 選択して、このウィンドウをそのワークスペースに切り替える（別ウィンドウで開いていればそちらへ） */
+/** 一覧の行をクリック: 選択して、既定の切替方法でそのワークスペースを開く（別ウィンドウで開いていればそちらへ） */
 function onRowClick(id) {
-  selectWorkspace(id);
-  switchHere(id);
+  openWorkspaceBy(id, defaultSwitchMode());
 }
 
 /** ブックマークまたは保存済みタブを 1 件だけ開く。開いているワークスペースならそのウィンドウへ */
@@ -217,7 +234,7 @@ function renderDetailHead() {
       }, openIn != null ? 'そのウィンドウへ' : parkedIn ? '再開' : 'このウィンドウで開く'),
       here || openIn != null ? null : h('button', {
         type: 'button',
-        title: '今のワークスペースのタブを閉じずに休止（折りたたんだグループ）にして残し、このワークスペースを開く（検索ボックスでは Ctrl+Enter）',
+        title: '今のワークスペースのタブを閉じずに休止（折りたたんだグループ）にして残し、このワークスペースを開く',
         onclick: () => switchHere(ws.id, { park: true }),
       }, '⏸ 休止して開く'),
       h('button', {
@@ -383,12 +400,12 @@ function renderList() {
       // 行の操作（マウスを乗せると出る。issue #35）: ⏸ 今のタブを休止して切替 / ⧉ 新しいウィンドウで開く
       here || openIn != null ? null : h('button', {
         class: 'icon act', type: 'button',
-        title: '今のワークスペースのタブを閉じずに休止して、このワークスペースに切り替える（検索ボックスでは Ctrl+Enter）',
+        title: '今のワークスペースのタブを閉じずに休止して、このワークスペースに切り替える',
         onclick: (e) => { e.stopPropagation(); selectWorkspace(id); switchHere(id, { park: true }); },
       }, '⏸'),
       h('button', {
         class: 'icon act', type: 'button',
-        title: openIn != null ? '開いているウィンドウへ移動' : '新しいウィンドウで開く（検索ボックスでは Shift+Enter）',
+        title: openIn != null ? '開いているウィンドウへ移動' : '新しいウィンドウで開く',
         onclick: (e) => { e.stopPropagation(); openNewWindow(id); },
       }, '⧉'),
     );
@@ -971,7 +988,7 @@ function searchEntry({ icon, url, title, sub, time, run }) {
     time ? h('span', { class: 'time' }, time) : null,
   );
   const entry = { el, run };
-  el.addEventListener('click', (e) => entry.run(switchModeFromKeys(e)));
+  el.addEventListener('click', (e) => entry.run(keyMode(e)));
   el.addEventListener('mousemove', () => searchSelect(searchItems.indexOf(entry)));
   return entry;
 }
@@ -1006,7 +1023,7 @@ async function runSearch() {
       title: w.name,
       sub: here ? 'このウィンドウ'
         : `${parkedIn ? (parkedIn.windowId === windowId ? '休止中 · ' : '別ウィンドウで休止中 · ') : ''}${sessionName(w.sessionId)} · ${w.tabs.length} タブ`,
-      // Enter = 切替 / Shift+Enter = 新しいウィンドウ / Ctrl+Enter = 今のタブを休止して切替
+      // Enter = 既定の切替方法 / Shift+Enter = 新しいウィンドウとの入れ替え / Ctrl+Enter = 休止との入れ替え（keyMode）
       run: async (mode) => {
         clearSearch();
         await openWorkspaceBy(w.id, mode);
@@ -1086,7 +1103,7 @@ $('search').addEventListener('keydown', (e) => {
   if (e.isComposing) return;
   if (e.key === 'ArrowDown') { e.preventDefault(); searchSelect(searchSel + 1); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); searchSelect(searchSel - 1); }
-  else if (e.key === 'Enter') { e.preventDefault(); searchItems[searchSel]?.run(switchModeFromKeys(e)); }
+  else if (e.key === 'Enter') { e.preventDefault(); searchItems[searchSel]?.run(keyMode(e)); }
   else if (e.key === 'Escape' && $('search').value) {
     // 入力があれば消すだけ。空のときは下の Esc ハンドラでパネルを閉じる
     e.preventDefault();
@@ -1107,7 +1124,7 @@ document.addEventListener('keydown', (e) => {
   $('search').focus();
   $('search').select();
 });
-// 番号キー 1〜9 / 0 でワークスペースへ切替（Shift で新しいウィンドウ）。入力欄では発火しない（空の検索ボックスのみ例外）
+// 番号キー 1〜9 / 0 でワークスペースへ切替（既定の切替方法。Shift で新しいウィンドウとの入れ替え）。入力欄では発火しない（空の検索ボックスのみ例外）
 document.addEventListener('keydown', (e) => {
   if (e.defaultPrevented || e.isComposing || e.ctrlKey || e.altKey || e.metaKey) return;
   // Shift 併用時は e.key が '!' などになるので e.code（Digit / Numpad）から数字を取る
@@ -1122,8 +1139,7 @@ document.addEventListener('keydown', (e) => {
   const id = data?.state?.workspaceOrder[index];
   if (!id) return;
   e.preventDefault();
-  if (e.shiftKey) openNewWindow(id);
-  else switchHere(id);
+  openWorkspaceBy(id, keyMode(e)); // 既定の切替方法（Shift で新しいウィンドウとの入れ替え）
 });
 // パネルが表示されたとき、他に入力中でなければ検索ボックスへ
 document.addEventListener('visibilitychange', () => {

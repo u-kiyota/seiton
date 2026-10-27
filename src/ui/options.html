@@ -2,23 +2,26 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <title>seiton 設定</title>
+  <title>seiton 設定・管理</title>
   <link rel="icon" href="../../icons/icon32.png">
   <link rel="stylesheet" href="common.css">
+  <link rel="stylesheet" href="manage.css">
   <style>
-    body { max-width: 980px; margin: 24px auto; padding: 0 16px; }
+    body { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
     .settings-brand { display: flex; align-items: center; gap: 14px; }
     .settings-brand img { width: 64px; height: 64px; border-radius: 14px; display: block; }
     h1 { font-size: 20px; margin: 0; }
-    /* 設定項目ごとのページ分け（issue #23）: 左のナビで節を切り替える */
-    .layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 28px; margin-top: 20px; align-items: start; }
+    /* 項目ごとのページ分け（issue #23）: 左のサイドメニューで節を切り替える */
+    .layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 28px; margin-top: 20px; align-items: start; }
     .sidenav { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 2px; }
+    .sidenav-group { padding: 10px 12px 4px; font-size: 11px; font-weight: 600; color: var(--fg-sub); }
     .sidenav a {
       display: block; padding: 7px 12px; border-radius: 8px; text-decoration: none; color: var(--fg); font-size: 13px;
     }
     .sidenav a:hover { background: var(--bg-hover); }
     .sidenav a.on { background: var(--bg-sel); font-weight: 600; }
     .sidenav .sidenav-sub { font-size: 11px; color: var(--fg-sub); display: block; font-weight: normal; }
+    .sidenav .badge { margin-left: 6px; background: var(--accent); color: #fff; }
     section.sec { display: none; }
     section.sec.on { display: block; }
     h2 { font-size: 17px; margin: 0 0 4px; }
@@ -41,9 +44,10 @@
     .cookie-status th { color: var(--fg-sub); font-size: 12px; white-space: nowrap; }
     .cookie-status .now { font-weight: 600; }
     .cookie-status .hosts { color: var(--fg-sub); font-size: 12px; }
-    @media (max-width: 720px) {
+    @media (max-width: 760px) {
       .layout { grid-template-columns: 1fr; gap: 16px; }
-      .sidenav { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+      .sidenav { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; align-items: center; }
+      .sidenav-group { width: 100%; padding: 6px 0 0; }
       .sidenav a { padding: 4px 10px; border: 1px solid var(--border); border-radius: 12px; font-size: 12px; }
       .sidenav .sidenav-sub { display: none; }
     }
@@ -52,23 +56,57 @@
 <body>
   <div class="settings-brand">
     <img src="../../icons/logo.png" alt="" width="64" height="64">
-    <h1>seiton 設定</h1>
+    <h1>seiton 設定・管理</h1>
     <span class="grow"></span>
     <button id="openGuide">使い方を見る</button>
   </div>
 
   <div class="layout">
-    <nav class="sidenav" aria-label="設定の項目">
+    <nav class="sidenav" aria-label="設定・管理の項目">
+      <div class="sidenav-group">管理</div>
+      <a href="#workspaces">ワークスペース<span class="sidenav-sub">一覧で編集・一括変更・並び替え・削除</span></a>
+      <a href="#sessions">セッション<span class="sidenav-sub">追加・名前変更・削除・Cookie の分離</span></a>
+      <a href="#closed">閉じたタブ<span id="navClosedCount" class="badge" hidden></span><span class="sidenav-sub">自動クローズの履歴から開き直す</span></a>
+      <div class="sidenav-group">設定</div>
       <a href="#display">表示<span class="sidenav-sub">ワークスペースタブ</span></a>
       <a href="#memory">メモリ<span class="sidenav-sub">遅延読み込み・自動休止</span></a>
-      <a href="#autoclose">タブの自動クローズ<span class="sidenav-sub">期間・除外 URL・閉じたタブ</span></a>
-      <a href="#session">セッション<span class="sidenav-sub">Cookie / ログイン状態の分離</span></a>
+      <a href="#autoclose">タブの自動クローズ<span class="sidenav-sub">期間・除外 URL</span></a>
       <a href="#bookmarks">ブックマーク<span class="sidenav-sub">自動移動・親フォルダ</span></a>
       <a href="#shortcuts">ショートカット<span class="sidenav-sub">キーの確認・変更</span></a>
       <a href="#backup">バックアップ<span class="sidenav-sub">エクスポート / インポート</span></a>
     </nav>
 
     <main>
+      <section class="sec" id="sec-workspaces" data-section="workspaces">
+        <h2>ワークスペース</h2>
+        <p class="sec-lead">切り替えずに、すべてのワークスペースをここで編集できます。名前・セッション・自動クローズは行で変えるとすぐ保存され、▼ で色とアイコンを開きます。左端の ⋮⋮ をドラッグすると並び替え（管理パネルの一覧でも行をドラッグできます）。チェックを入れた行には下の一括変更を適用します。新しいワークスペースの作成とブックマークフォルダの接続は管理パネル（＋ / ✎）から。</p>
+        <div id="wsManager"></div>
+      </section>
+
+      <section class="sec" id="sec-sessions" data-section="sessions">
+        <h2>セッション</h2>
+        <p class="sec-lead">ワークスペースが「どのアカウント / ログイン状態で使うか」を表します。セッションごとに Cookie（ログイン状態）が分かれ、Chrome のプロファイルを切り替えるように使えます。各ワークスペースが使うセッションは「ワークスペース」の節か管理パネルの ✎ で選びます。</p>
+        <div id="sessionManager"></div>
+
+        <h3>Cookie の状態</h3>
+        <div class="desc exclude-desc">
+          別のセッションを使うワークスペースに切り替えるとき、今の Cookie をそのセッション用に退避してすべて消し、切替先のセッションの Cookie を復元します（Chrome のプロファイルを切り替えるのに近い動き）。
+          Chrome 全体で同時に使えるセッションは 1 つで、切替は他のウィンドウにも及びます（別のセッションのワークスペースを開いているウィンドウは、次の読み込みから切替先のログイン状態になります）。
+          Cookie を読み書きする権限（すべてのサイト）が必要で、2 つ目のセッションを追加するときに Chrome が確認を出します。localStorage などサイト側の他の保存領域は分けません。
+          退避した Cookie はこの拡張の保存領域（<code>chrome.storage.local</code>）に平文で保存され、エクスポートには含まれません。
+        </div>
+        <div id="cookieStatus" class="cookie-status"></div>
+        <div class="row">
+          <span id="clearCookieSlot"></span>
+          <span class="muted small">「退避した Cookie を削除」は退避した分だけを消します（今 Chrome に入っている Cookie は消しません）。</span>
+        </div>
+      </section>
+
+      <section class="sec" id="sec-closed" data-section="closed">
+        <h2>閉じたタブ</h2>
+        <div id="closedView"></div>
+      </section>
+
       <section class="sec" id="sec-display" data-section="display">
         <h2>表示</h2>
         <p class="sec-lead">ウィンドウの見た目に関する設定です。</p>
@@ -90,14 +128,14 @@
           <div class="desc">
             通常は Chrome 標準の「メモリセーバー」（<a href="#" id="openPerf">chrome://settings/performance</a>）に任せるのがおすすめです。
             メモリセーバーはメモリ逼迫度やタブの状態（フォーム入力中・音声再生中など）を考慮して休止するため、こちらは「確実に N 分で休止させたい」場合だけ使ってください。固定タブと音声再生中のタブは対象外です。
-            今すぐ休止したいときは、管理パネルの ☰ 管理 → 「非アクティブなタブを休止」。
+            今すぐ休止したいときは、管理パネル左下の「💤 休止」。
           </div>
         </div>
       </section>
 
       <section class="sec" id="sec-autoclose" data-section="autoclose">
         <h2>タブの自動クローズ</h2>
-        <p class="sec-lead">長期間使っていないタブを、休止ではなく閉じる機能です。既定は OFF。</p>
+        <p class="sec-lead">長期間使っていないタブを、休止ではなく閉じる機能です。既定は OFF。閉じたタブは左の「閉じたタブ」から開き直せます。</p>
         <div class="field">
           <label><input id="autoCloseEnabled" type="checkbox"> 長期間使っていないタブを自動で閉じる</label>
         </div>
@@ -110,9 +148,9 @@
             </select>
           </label>
           <div class="desc">
-            15 分ごとに確認し、最後にアクティブにしてからこの期間が経ったタブを閉じます（最短 15 分）。閉じたタブは管理パネルの ☰ 管理 → 「閉じたタブ」（最大 500 件）や Chrome の履歴から開き直せます。
+            15 分ごとに確認し、最後にアクティブにしてからこの期間が経ったタブを閉じます（最短 15 分）。閉じたタブは「閉じたタブ」（最大 500 件）や Chrome の履歴から開き直せます。
             固定タブ・音声再生中のタブ・各ウィンドウのアクティブなタブ・seiton 自身のページは対象外で、ウィンドウの最後の 1 枚は閉じません。
-            閉じたタブはワークスペースの保存内容からも外れます。ワークスペースごとに、管理パネルの ✎ や「ワークスペースの管理」で上書きできます。
+            閉じたタブはワークスペースの保存内容からも外れます。ワークスペースごとに、「ワークスペース」の節か管理パネルの ✎ で上書きできます。
           </div>
         </div>
 
@@ -128,33 +166,6 @@
             <input id="excludePattern" type="text" class="grow" placeholder="例: github.com / mail.google.com/mail / https://example.com/docs" autocomplete="off">
             <button type="submit">追加</button>
           </form>
-        </div>
-
-        <h3>閉じたタブの履歴</h3>
-        <div class="row">
-          <span id="clearClosedSlot"></span>
-          <span class="muted small" id="closedCount"></span>
-        </div>
-        <div class="desc exclude-desc">自動クローズで閉じたタブの履歴（最大 500 件）です。開き直すには管理パネルの ☰ 管理 → 「閉じたタブ」。エクスポート / インポートの対象外です。</div>
-      </section>
-
-      <section class="sec" id="sec-session" data-section="session">
-        <h2>セッション（Cookie / ログイン状態の分離）</h2>
-        <p class="sec-lead">セッションの追加・名前変更・削除は管理パネルの ☰ 管理 → 「セッションの管理」で行います。ここでは Cookie（ログイン状態）の状態を確認します。</p>
-        <div class="field">
-          <div class="desc exclude-desc">
-            セッションごとに Cookie（ログイン状態）が分かれます。別のセッションを使うワークスペースに切り替えるとき、今の Cookie をそのセッション用に退避してすべて消し、切替先のセッションの Cookie を復元します
-            （Chrome のプロファイルを切り替えるのに近い動き）。同じサイトに別のアカウントでログインしたままセッションごとに使い分けられます。
-            Chrome 全体で同時に使えるセッションは 1 つで、切替は他のウィンドウにも及びます（別のセッションのワークスペースを開いているウィンドウは、次の読み込みから切替先のログイン状態になります）。
-            Cookie を読み書きする権限（すべてのサイト）が必要で、管理パネルでセッションを追加するときに Chrome が確認を出します。localStorage などサイト側の他の保存領域は分けません。
-            退避した Cookie はこの拡張の保存領域（<code>chrome.storage.local</code>）に平文で保存され、エクスポートには含まれません。
-          </div>
-        </div>
-        <div id="cookieStatus" class="cookie-status"></div>
-        <div class="row">
-          <span id="cookieGrantSlot"></span>
-          <span id="clearCookieSlot"></span>
-          <span class="muted small">「退避した Cookie を削除」は退避した分だけを消します（今 Chrome に入っている Cookie は消しません）。</span>
         </div>
       </section>
 

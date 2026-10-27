@@ -11,22 +11,6 @@
   <header class="appbar">
     <div class="brand"><img src="../../icons/logo.png" alt="" width="40" height="40">seiton</div>
     <span class="grow"></span>
-    <div class="menu-wrap">
-      <button id="menuBtn" type="button" aria-haspopup="menu" aria-expanded="false" title="管理メニュー（ワークスペース / セッション / タブ / 設定 / 使い方）">☰ 管理<span id="menuBadge" class="badge" hidden></span></button>
-      <div id="menu" class="menu" role="menu" hidden>
-        <div class="menu-sec">ワークスペース</div>
-        <button id="menuCreate" type="button" role="menuitem">＋ 新しいワークスペース<span class="menu-sub">名前・アイコン・セッション・ブックマークフォルダを決めて作成</span></button>
-        <button id="manage" type="button" role="menuitem">ワークスペースの管理<span class="menu-sub">切り替えずに一覧で編集・一括変更・並び替え・削除</span></button>
-        <div class="menu-sec">セッション</div>
-        <button id="sessions" type="button" role="menuitem">セッションの管理<span class="menu-sub">追加・名前変更・削除・全て開く・Cookie（ログイン状態）の分離</span></button>
-        <div class="menu-sec">タブ</div>
-        <button id="closedTabs" type="button" role="menuitem"><span id="closedLabel">閉じたタブ</span><span class="menu-sub">自動クローズで閉じたタブの履歴から開き直す</span></button>
-        <button id="discard" type="button" role="menuitem">非アクティブなタブを休止<span class="menu-sub">このウィンドウの使っていないタブのメモリを解放（タブは残ります）</span></button>
-        <div class="menu-sec">その他</div>
-        <button id="options" type="button" role="menuitem">⚙ 設定<span class="menu-sub">表示 / メモリ / 自動クローズ / セッション / ブックマーク / ショートカット / バックアップ</span></button>
-        <button id="guide" type="button" role="menuitem">? 使い方<span class="menu-sub">使い方ページを開く</span></button>
-      </div>
-    </div>
   </header>
 
   <div class="searchbar">
@@ -44,6 +28,11 @@
         <button id="createOpen" class="icon plus" type="button" title="新しいワークスペースを作成">＋</button>
       </div>
       <div id="list" class="col-body"></div>
+      <div class="col-foot">
+        <button id="options" type="button" title="設定・管理（ワークスペース / セッション / 閉じたタブ の管理と、表示 / メモリ / 自動クローズ / ブックマーク / ショートカット / バックアップ の設定）を開く">⚙ 設定・管理<span id="closedBadge" class="badge" hidden></span></button>
+        <button id="discard" type="button" title="このウィンドウの非アクティブなタブのメモリを解放（タブは残ります）">💤 休止</button>
+        <button id="guide" type="button" title="使い方ページを開く">? 使い方</button>
+      </div>
     </aside>
 
     <div class="stage">
@@ -95,40 +84,6 @@
     </form>
   </dialog>
 
-  <dialog id="sessionDialog">
-    <div class="dlg-head">
-      <span class="grow">セッション</span>
-      <button type="button" class="icon" id="sessionClose" title="閉じる">×</button>
-    </div>
-    <div class="dlg-body">
-      <div class="muted small">ワークスペースが「どのアカウント / ログイン状態で使うか」を表します。セッションごとに Cookie（ログイン状態）が分かれ、Chrome のプロファイルを切り替えるように使えます。各ワークスペースの ✎ から使うセッションを選びます。</div>
-      <div class="row sess-cookie">
-        <div class="muted small grow" id="sessionCookieNote"></div>
-        <span id="sessionCookieGrantSlot"></span>
-      </div>
-      <div id="sessionList"></div>
-      <form id="sessionAdd" class="row">
-        <input id="sessionName" type="text" class="grow" placeholder="新しいセッション名（例: AWS 開発アカウント）" autocomplete="off">
-        <button type="submit">追加</button>
-      </form>
-    </div>
-  </dialog>
-
-  <dialog id="closedDialog">
-    <div class="dlg-head">
-      <span class="grow">閉じたタブ</span>
-      <button type="button" class="icon" id="closedClose" title="閉じる">×</button>
-    </div>
-    <div class="dlg-body">
-      <div class="muted small" id="closedDesc"></div>
-      <div class="row">
-        <input id="closedSearch" type="search" class="grow" placeholder="タイトル・URL で絞り込み" autocomplete="off">
-        <span id="closedClearSlot"></span>
-      </div>
-      <div id="closedList"></div>
-    </div>
-  </dialog>
-
   <dialog id="excludeDialog">
     <form id="excludeForm">
       <div class="dlg-head">自動クローズから除外</div>
@@ -147,29 +102,6 @@
         <button type="submit" class="primary">除外リストに追加</button>
       </div>
     </form>
-  </dialog>
-
-  <dialog id="manageDialog">
-    <div class="dlg-head">
-      <span class="grow">ワークスペースの管理</span>
-      <button type="button" class="icon" id="manageClose" title="閉じる">×</button>
-    </div>
-    <div class="dlg-body">
-      <div class="muted small">切り替えずに、すべてのワークスペースをここで編集できます。名前・セッション・自動クローズは行で変えるとすぐ保存され、▼ で色とアイコンを開きます。左端の ⋮⋮ をドラッグすると並び替え（左の一覧でも行をドラッグできます）。チェックを入れた行には下の一括変更を適用します。ブックマークフォルダの接続はワークスペースの ✎ から。</div>
-      <div class="row">
-        <label class="check"><input id="manageAll" type="checkbox"> すべて選択</label>
-        <span id="manageCount" class="muted small grow"></span>
-      </div>
-      <div id="manageList"></div>
-      <div class="mg-bulk">
-        <span class="mg-bulk-title">チェックした行を一括変更:</span>
-        <span class="group"><span class="label">セッション</span><select id="bulkSession"></select><button type="button" id="bulkSessionApply">適用</button></span>
-        <span class="group"><span class="label">色</span><select id="bulkColor"></select><button type="button" id="bulkColorApply">適用</button></span>
-        <span class="group"><span class="label">自動クローズ</span><span id="bulkAutoCloseSlot"></span><button type="button" id="bulkAutoCloseApply">適用</button></span>
-        <span class="grow"></span>
-        <span id="bulkDeleteSlot"></span>
-      </div>
-    </div>
   </dialog>
 
   <script type="module" src="sidepanel.js"></script>

@@ -71,6 +71,10 @@ body {
 .col-title.row { padding: 8px 12px 8px 18px; min-height: 49px; }
 .col-title .plus { font-size: 16px; line-height: 1; padding: 4px 8px; }
 .col-body { flex: 1; overflow: auto; min-height: 0; padding: 8px 10px 16px; }
+/* 左列の下部: 設定・管理（閉じたタブの件数バッジ付き）/ 休止 / 使い方 */
+.col-foot { display: flex; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--border); flex: none; }
+.col-foot button { flex: 1; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 6px; }
+#closedBadge { background: var(--accent); color: #fff; }
 
 .ws { border-radius: 8px; margin-bottom: 4px; }
 .ws-head { padding: 10px 12px; border-radius: 8px; cursor: pointer; gap: 8px; }
@@ -147,20 +151,6 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .field > span { font-size: 12px; color: var(--fg-sub); }
 .field input, .field select { width: 100%; padding: 6px 10px; }
 .check { display: flex; align-items: center; gap: 8px; }
-.sess-cookie { align-items: flex-start; gap: 10px; margin: 4px 0 6px; }
-.sess-cookie button { white-space: nowrap; }
-.sess-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
-.sess-row:last-child { border-bottom: none; }
-.sess-row input[type=text] { flex: 1; min-width: 0; }
-/* 閉じたタブの履歴 */
-#closedDialog { width: min(760px, 92vw); }
-#closedSearch { min-width: 0; padding: 6px 10px; }
-#closedList { max-height: min(60vh, 560px); overflow: auto; margin: 0 -8px; }
-#closedList .group-label { padding: 10px 12px 2px; }
-#closedList .entry { padding: 7px 12px; gap: 10px; }
-#closedList .entry .host { max-width: 200px; }
-#closedList .entry .ws-session { max-width: 140px; }
-#closedList .entry .time { flex: none; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 960px) {
   .board { grid-template-columns: 240px minmax(0, 1fr); }
@@ -175,52 +165,7 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .badge.hotkey { font-family: ui-monospace, Consolas, monospace; min-width: 1.4em; text-align: center; flex: none; }
 
 /* ワークスペースの並び替え（ドラッグ＆ドロップ。issue #25）: 落とす位置を行の上 / 下の線で示す */
-.ws.drop-before, .mg-row.drop-before { box-shadow: 0 -2px 0 0 var(--accent); }
-.ws.drop-after, .mg-row.drop-after { box-shadow: 0 2px 0 0 var(--accent); }
-.ws-head.dragging, .mg-row.dragging { opacity: .5; }
+.ws.drop-before { box-shadow: 0 -2px 0 0 var(--accent); }
+.ws.drop-after { box-shadow: 0 2px 0 0 var(--accent); }
+.ws-head.dragging { opacity: .5; }
 .ws-head { cursor: pointer; }
-
-/* ワークスペースの管理ダイアログ */
-#manageDialog { width: min(1000px, 94vw); }
-#manageList { max-height: min(56vh, 560px); overflow: auto; margin: 0 -8px; display: flex; flex-direction: column; gap: 2px; }
-.mg-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px; }
-.mg-row:hover { background: var(--bg-hover); }
-.mg-row.sel { background: var(--bg-sel); }
-.mg-grip { cursor: grab; color: var(--fg-sub); user-select: none; padding: 0 2px; letter-spacing: -3px; flex: none; }
-.mg-grip:active { cursor: grabbing; }
-.mg-look { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px; flex: none; }
-.mg-name { flex: 1; min-width: 120px; }
-.mg-session { max-width: 150px; }
-.ac-controls { gap: 4px; flex: none; }
-.ac-controls select:first-child { max-width: 170px; }
-.ac-duration { gap: 4px; }
-.mg-tabs { white-space: nowrap; flex: none; }
-.mg-expand { padding: 6px 12px 10px 60px; display: flex; flex-direction: column; gap: 8px; background: var(--bg-sub); border-radius: 8px; }
-.mg-expand .edit-label { width: 56px; flex: none; color: var(--fg-sub); font-size: 13px; }
-.mg-expand .icon-picker { flex: 1; min-width: 0; }
-.mg-bulk {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 12px;
-  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-sub);
-}
-.mg-bulk-title { font-weight: 600; font-size: 12px; }
-.mg-bulk .group { display: inline-flex; align-items: center; gap: 4px; }
-.mg-bulk .group > .label { font-size: 11px; color: var(--fg-sub); }
-.mg-bulk select { max-width: 170px; }
-
-/* ヘッダーの ☰ 管理メニュー（issue #23） */
-.menu-wrap { position: relative; }
-#menuBtn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; }
-#menuBtn.on { background: var(--bg-sel); }
-#menuBadge { background: var(--accent); color: #fff; }
-.menu {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 320px;
-  background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 6px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
-}
-.menu-sec { padding: 8px 10px 2px; font-size: 11px; font-weight: 600; color: var(--fg-sub); }
-.menu > button[role=menuitem] {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; text-align: left;
-  border: none; background: none; padding: 6px 10px; border-radius: 6px; font-size: 13px; color: var(--fg);
-}
-.menu > button[role=menuitem]:hover, .menu > button[role=menuitem]:focus-visible { background: var(--bg-hover); outline: none; }
-.menu-sub { font-size: 11px; color: var(--fg-sub); font-weight: normal; }

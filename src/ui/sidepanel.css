@@ -22,9 +22,10 @@ body {
   display: flex; align-items: center; gap: 16px; padding: 10px 20px;
   border-bottom: 1px solid var(--border); background: var(--bg-sub); flex: none;
 }
-.search-wrap { position: relative; flex: 1; max-width: 720px; }
+/* 検索ボックスは縮めない（最低 260px）。ヒントは折り返して残りの幅に収める（長いヒントで入力欄がつぶれないように） */
+.search-wrap { position: relative; flex: 1 1 420px; min-width: 260px; max-width: 720px; }
 #search { width: 100%; padding: 7px 12px; font-size: 14px; }
-.search-hint { white-space: nowrap; }
+.search-hint { flex: 1 1 240px; min-width: 0; white-space: normal; line-height: 1.35; }
 #searchResults {
   position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
   max-height: min(70vh, 640px); overflow: auto; padding: 4px 0;
@@ -169,3 +170,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 .ws.drop-after { box-shadow: 0 2px 0 0 var(--accent); }
 .ws-head.dragging { opacity: .5; }
 .ws-head { cursor: pointer; }
+
+/* 休止（issue #35）: 行の操作ボタンはマウスを乗せたとき・選択中だけ出す。休止中のバッジは枠だけ */
+.ws-head button.act { visibility: hidden; flex: none; padding: 1px 5px; }
+.ws-head:hover button.act, .ws.sel > .ws-head button.act { visibility: visible; }
+.badge.parked { border: 1px solid var(--border); color: var(--fg-sub); white-space: nowrap; }

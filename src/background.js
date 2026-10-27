@@ -9,8 +9,9 @@ import { serialize, loadState, saveState, mutate, getBindings } from './lib/stor
 import {
   snapshotWindow, switchWorkspace, openInNewWindow, createWorkspace, updateWorkspace, reorderWorkspace,
   deleteWorkspace, updateWorkspaces, deleteWorkspaces, detachWindow, createSession, renameSession, deleteSession,
-  openSessionWindows, reconcileWindows, onWindowFocused, onWindowRemoved, isSwitching, isNormalWindow,
+  openSessionWindows, reconcileWindows, onWindowFocused, onWindowRemoved, isSwitching, isNormalWindow, closeParked,
 } from './lib/workspace.js';
+import { forgetParkedGroup, parkedByWorkspace, refreshParkedGroups, replaceParkedTabId, noteReplacedTab } from './lib/parked.js';
 import {
   ownCreatedIds, setImporting, isImporting, createFolderForWorkspace, listAllFolders,
   listFolderBookmarks, saveToFolder, collectIds,
@@ -107,7 +108,14 @@ chrome.tabs.onReplaced.addListener(async (addedTabId) => {
     refreshWindowIndicator(tab.windowId);
   } catch { /* 既に閉じられた */ }
 });
+// 休止グループ（issue #35）のタブが discard で置き換わったら、記録の ID を追従させる
+chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
+  noteReplacedTab(removedTabId, addedTabId);
+  serialize(() => replaceParkedTabId(removedTabId, addedTabId));
+});
 chrome.tabGroups.onUpdated.addListener((group) => scheduleSnapshot(group.windowId));
+// 休止グループ（issue #35）が消えた（最後のタブが閉じられた・グループから外された）ら記録を捨てる
+chrome.tabGroups.onRemoved.addListener((group) => { serialize(() => forgetParkedGroup(group.id)); });
 
 chrome.windows.onRemoved.addListener((windowId) => {
   clearTimeout(snapshotTimers.get(windowId));
@@ -145,6 +153,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (labelChanged) scheduleAllIndicators();
     // ワークスペースタブ: グループのタイトル・色の更新、設定の ON / OFF（OFF なら全ウィンドウで閉じる）
     if (labelChanged || workspaceTabEnabled(oldValue) !== workspaceTabEnabled(newValue)) scheduleAllWorkspaceTabs();
+    // 休止グループ（issue #35）のタイトル・色も追従させる（ワークスペースが消えたら普通のグループにする）
+    if (labelChanged) serialize(async () => refreshParkedGroups(await loadState())).catch(() => {});
     // 同期（issue #4）: ローカルの変化を少し待ってまとめて同期ストレージへ書く（書き込み回数の上限に収める）
     if (newValue?.settings?.syncEnabled) scheduleSync();
   }
@@ -346,7 +356,8 @@ async function getPalette(windowId) {
 
 // 読み取り専用の処理は直列キューを通さずに即応答する
 const readOnly = {
-  getState: async () => ({ state: await loadState(), bindings: await getBindings() }),
+  // parked: 休止中のワークスペース（issue #35）→ { windowId, groupId }
+  getState: async () => ({ state: await loadState(), bindings: await getBindings(), parked: await parkedByWorkspace() }),
   getPalette: ({ windowId }) => getPalette(windowId),
   listFolders: () => listAllFolders(),
   // 管理パネルの開閉は状態を書き換えないので直列キューを通さない（切替中でもすぐ開く。開閉自体は manager.js 内で直列化）
@@ -373,13 +384,16 @@ const readOnly = {
 };
 
 const mutating = {
-  switchWorkspace: ({ windowId, workspaceId }) => switchWorkspace(windowId, workspaceId),
+  // park: 今のタブを閉じずに休止グループに残して切り替える（issue #35）
+  switchWorkspace: ({ windowId, workspaceId, park }) => switchWorkspace(windowId, workspaceId, { park: !!park }),
   openInNewWindow: ({ workspaceId }) => openInNewWindow(workspaceId),
   createWorkspace: async (msg) => {
     const res = await createWorkspace(msg);
-    if (msg.switchTo && msg.windowId !== undefined) await switchWorkspace(msg.windowId, res.workspaceId);
+    if (msg.switchTo && msg.windowId !== undefined) await switchWorkspace(msg.windowId, res.workspaceId, { park: !!msg.park });
     return res;
   },
+  // 休止中のワークスペースのタブを閉じる（休止を終了）
+  closeParked: ({ workspaceId }) => closeParked(workspaceId),
   updateWorkspace: async ({ id, patch }) => {
     const res = await updateWorkspace(id, patch);
     if (patch && 'autoClose' in patch) await configureAutoClose(await loadState());

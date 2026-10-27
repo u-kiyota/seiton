@@ -27,7 +27,7 @@ function item({ icon, title, sub, cls = '', run, remove }) {
     }, '×') : null,
   );
   const entry = { el, run, remove };
-  el.addEventListener('click', (e) => run(e.shiftKey));
+  el.addEventListener('click', (e) => run(e.shiftKey, e.ctrlKey || e.metaKey));
   el.addEventListener('mousemove', () => select(items.indexOf(entry)));
   return entry;
 }
@@ -75,7 +75,7 @@ function render() {
     push(item({
       icon: h('img', { class: 'fav', src: faviconUrl(t.url) }),
       title: (t.pinned ? '📌 ' : '') + (t.title || t.url),
-      sub: t.discarded ? '休止中' : hostOf(t.url),
+      sub: t.discarded ? 'メモリ解放済み' : hostOf(t.url),
       cls: t.discarded ? 'discarded' : '',
       run: async () => { await chrome.tabs.update(t.id, { active: true }); window.close(); },
       remove: async () => {
@@ -125,10 +125,10 @@ function render() {
       title: w.name,
       sub: here ? 'このウィンドウ' : `${s?.name || ''} · ${w.tabs.length} タブ`,
       cls: here ? 'here' : '',
-      run: (shift) => attempt(async () => {
-        // Shift で新しいウィンドウ、通常はこのウィンドウを切替
+      run: (shift, park) => attempt(async () => {
+        // Shift で新しいウィンドウ、Ctrl で今のタブを休止して切替（issue #35）、通常はこのウィンドウを切替
         if (shift) await call('openInNewWindow', { workspaceId: w.id });
-        else if (!here) await call('switchWorkspace', { windowId, workspaceId: w.id });
+        else if (!here) await call('switchWorkspace', { windowId, workspaceId: w.id, park: !!park });
         window.close();
       }),
     }));
@@ -152,7 +152,7 @@ document.addEventListener('keydown', (e) => {
     q.setSelectionRange(q.value.length, q.value.length);
     render();
   }
-  else if (e.key === 'Enter') { e.preventDefault(); items[sel]?.run(e.shiftKey); }
+  else if (e.key === 'Enter') { e.preventDefault(); items[sel]?.run(e.shiftKey, e.ctrlKey || e.metaKey); }
   else if (e.key === 'Delete' && items[sel]?.remove) {
     // 検索欄の文字削除を邪魔しないよう、カーソルが末尾にある時だけタブを閉じる
     const q = $('q');

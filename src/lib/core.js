@@ -903,3 +903,92 @@ export function cookieHosts(cookies) {
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([host, count]) => ({ host, count }));
 }
+
+// ---- 休止（issue #35）: 今のワークスペースのタブを閉じずに、折りたたんだタブグループとして同じウィンドウに残す ----
+
+/** 休止中のワークスペースのグループのタイトルに付ける接頭辞（ワークスペースタブのグループ「絵文字 名前」と区別する） */
+export const PARKED_PREFIX = '⏸ ';
+
+/** 休止グループのタイトルと色。タイトルは「⏸ 絵文字 名前」、色はワークスペースの色 */
+export function parkedGroupProps(ws) {
+  const p = workspaceTabGroupProps(ws);
+  return { title: PARKED_PREFIX + p.title, color: p.color };
+}
+
+/**
+ * 再起動後の復旧用: 「⏸ 絵文字 名前」のグループタイトルから、対応するワークスペース ID を返す（無ければ null）。
+ * 同じタイトルになるワークスペースが複数あれば並び順で先のもの。exclude に入っている ID は飛ばす
+ */
+export function workspaceIdForParkedTitle(title, workspaces, order, exclude = new Set()) {
+  if (typeof title !== 'string' || !title.startsWith(PARKED_PREFIX)) return null;
+  for (const id of order || []) {
+    const ws = workspaces?.[id];
+    if (!ws || exclude.has(id)) continue;
+    if (parkedGroupProps(ws).title === title) return id;
+  }
+  return null;
+}
+
+/**
+ * 休止の計画: ウィンドウのタブ（ワークスペースタブ・管理パネルを除く）から、グループに入れるタブと、
+ * 再開時に元に戻すための情報（固定だったタブ・元のグループ・前面だったタブ）を作る。
+ * 中身のあるタブ（空タブ以外の保存できる URL）が 1 枚も無ければ null（休止する意味が無いので閉じてよい）。
+ * groupsById: { [groupId]: { title, color, collapsed } }
+ */
+export function planPark(tabs, groupsById = {}) {
+  const list = [...(tabs || [])]
+    .filter((t) => t && !isWorkspaceTabUrl(tabUrl(t)) && !isManagerUrl(tabUrl(t)))
+    .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+  if (!list.some((t) => isRestorableUrl(tabUrl(t)) && !isBlankUrl(tabUrl(t)))) return null;
+  const groups = {};
+  const members = {};
+  const pinned = [];
+  let activeTabId = null;
+  for (const t of list) {
+    if (t.pinned) pinned.push(t.id);
+    if (t.active) activeTabId = t.id;
+    if (!t.pinned && t.groupId !== undefined && t.groupId !== -1 && groupsById[t.groupId]) {
+      const key = 'g' + t.groupId;
+      const g = groupsById[t.groupId];
+      groups[key] = { title: g.title || '', color: g.color || 'grey', collapsed: !!g.collapsed };
+      members[t.id] = key;
+    }
+  }
+  return { tabIds: list.map((t) => t.id), pinned, activeTabId, groups, members };
+}
+
+/**
+ * 休止中のタブを保存用に見せ直す: 固定・前面・元のグループを休止前の状態に戻した Tab の配列と groupsById を返す
+ * （休止グループそのものはワークスペースに保存しない）。snapshotTabs にそのまま渡せる
+ */
+export function parkedTabsForSnapshot(tabs, record) {
+  const pinnedSet = new Set(record?.pinned || []);
+  const members = record?.members || {};
+  const groups = record?.groups || {};
+  const synthetic = {};
+  const groupsById = {};
+  let next = -1000;
+  const out = (tabs || []).map((t) => {
+    const key = members[t.id];
+    let groupId = -1;
+    if (key && groups[key]) {
+      if (synthetic[key] === undefined) {
+        synthetic[key] = next--;
+        groupsById[synthetic[key]] = groups[key];
+      }
+      groupId = synthetic[key];
+    }
+    return { ...t, pinned: pinnedSet.has(t.id), active: record?.activeTabId === t.id, groupId };
+  });
+  return { tabs: out, groupsById };
+}
+
+/**
+ * 管理パネルの検索ボックス・一覧で、キーの組み合わせから切替方法を決める。
+ * Ctrl（Mac は ⌘）= 休止して切替、Shift = 新しいウィンドウ、それ以外 = 切替（今のタブを閉じる）
+ */
+export function switchModeFromKeys({ shiftKey = false, ctrlKey = false, metaKey = false } = {}) {
+  if (ctrlKey || metaKey) return 'park';
+  if (shiftKey) return 'window';
+  return 'switch';
+}

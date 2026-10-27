@@ -78,7 +78,7 @@
       <a href="#closed">閉じたタブ<span id="navClosedCount" class="badge" hidden></span><span class="sidenav-sub">自動クローズの履歴から開き直す</span></a>
       <div class="sidenav-group">設定</div>
       <a href="#display">表示<span class="sidenav-sub">ワークスペースタブ</span></a>
-      <a href="#memory">メモリ<span class="sidenav-sub">遅延読み込み・自動休止</span></a>
+      <a href="#memory">メモリ<span class="sidenav-sub">遅延読み込み・自動メモリ解放</span></a>
       <a href="#autoclose">タブの自動クローズ<span class="sidenav-sub">期間・除外 URL</span></a>
       <a href="#bookmarks">ブックマーク<span class="sidenav-sub">自動移動・親フォルダ</span></a>
       <a href="#shortcuts">ショートカット<span class="sidenav-sub">キーの確認・変更</span></a>
@@ -134,18 +134,18 @@
           <div class="desc">タブはタブバーに表示されたまま、クリックした時点で読み込まれます。推奨: ON</div>
         </div>
         <div class="field">
-          <label>非アクティブな状態が <input id="autoDiscardMinutes" type="number" min="0" step="5"> 分続いたタブを自動で休止（0 = 無効）</label>
+          <label>非アクティブな状態が <input id="autoDiscardMinutes" type="number" min="0" step="5"> 分続いたタブのメモリを自動で解放（0 = 無効）</label>
           <div class="desc">
             通常は Chrome 標準の「メモリセーバー」（<a href="#" id="openPerf">chrome://settings/performance</a>）に任せるのがおすすめです。
-            メモリセーバーはメモリ逼迫度やタブの状態（フォーム入力中・音声再生中など）を考慮して休止するため、こちらは「確実に N 分で休止させたい」場合だけ使ってください。固定タブと音声再生中のタブは対象外です。
-            今すぐ休止したいときは、管理パネル左下の「💤 休止」。
+            メモリセーバーはメモリ逼迫度やタブの状態（フォーム入力中・音声再生中など）を考慮して解放するため、こちらは「確実に N 分で解放したい」場合だけ使ってください。固定タブと音声再生中のタブは対象外です。
+            今すぐ解放したいときは、管理パネル左下の「💤 メモリ解放」。
           </div>
         </div>
       </section>
 
       <section class="sec" id="sec-autoclose" data-section="autoclose">
         <h2>タブの自動クローズ</h2>
-        <p class="sec-lead">長期間使っていないタブを、休止ではなく閉じる機能です。既定は OFF。閉じたタブは左の「閉じたタブ」から開き直せます。</p>
+        <p class="sec-lead">長期間使っていないタブを、メモリ解放ではなく閉じる機能です。既定は OFF。閉じたタブは左の「閉じたタブ」から開き直せます。</p>
         <div class="field">
           <label><input id="autoCloseEnabled" type="checkbox"> 長期間使っていないタブを自動で閉じる</label>
         </div>

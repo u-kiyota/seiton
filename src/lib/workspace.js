@@ -320,6 +320,7 @@ export async function createWorkspace({ name, sessionId, color, icon, fromWindow
   }
   state.workspaces[id] = ws;
   state.workspaceOrder.push(id);
+  state.orderAt = Date.now();
   await saveState(state);
 
   let cookieSession = null;
@@ -352,6 +353,7 @@ export async function updateWorkspace(id, patch) {
     if ('bookmarkFolderId' in patch) {
       ws.bookmarkFolderId = patch.bookmarkFolderId || null;
       ws.bookmarkFolderManaged = !!patch.bookmarkFolderManaged;
+      delete ws.bookmarkFolderPath; // 同期で受け取った未解決のパスより、ここで選んだフォルダを優先する
     }
     // 使うセッションの付け替え（ワークスペースの並び順は変わらない）
     if (patch.sessionId && state.sessions[patch.sessionId] && ws.sessionId !== patch.sessionId) {
@@ -362,6 +364,7 @@ export async function updateWorkspace(id, patch) {
     if ('autoClose' in patch) {
       ws.autoClose = normalizeAutoCloseOverride(patch.autoClose, ws.autoClose || state.settings.autoClose);
     }
+    ws.updatedAt = Date.now(); // 同期の衝突（両方の端末で変えた）で新しい方を採るため
     return state;
   });
   if (renamed) await renameManagedFolder(renamed.folderId, renamed.name);
@@ -379,6 +382,7 @@ export async function reorderWorkspace(id, toIndex) {
   await mutate((state) => {
     if (!state.workspaces[id]) return;
     state.workspaceOrder = moveInOrder(state.workspaceOrder, id, toIndex);
+    state.orderAt = Date.now();
   });
 }
 
@@ -419,6 +423,7 @@ export async function deleteWorkspace(id) {
   await mutate((state) => {
     if (!state.workspaces[id]) return;
     state.workspaceOrder = state.workspaceOrder.filter((w) => w !== id);
+    state.orderAt = Date.now();
     if (state.lastFocusedWorkspaceId === id) state.lastFocusedWorkspaceId = null;
     delete state.workspaces[id];
   });
@@ -439,15 +444,20 @@ export async function createSession(name) {
       id,
       name: (name || '').trim() || `セッション ${state.sessionOrder.length + 1}`,
       createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
     state.sessionOrder.push(id);
+    state.orderAt = Date.now();
   });
   return { sessionId: id };
 }
 
 export async function renameSession(id, name) {
   await mutate((state) => {
-    if (state.sessions[id] && name && name.trim()) state.sessions[id].name = name.trim();
+    if (state.sessions[id] && name && name.trim()) {
+      state.sessions[id].name = name.trim();
+      state.sessions[id].updatedAt = Date.now();
+    }
   });
 }
 
@@ -465,10 +475,14 @@ export async function deleteSession(id, moveToId) {
   await mutate((state) => {
     if (!state.sessions[id] || !state.sessions[dest]) return;
     for (const ws of Object.values(state.workspaces)) {
-      if (ws.sessionId === id) ws.sessionId = dest;
+      if (ws.sessionId === id) {
+        ws.sessionId = dest;
+        ws.updatedAt = Date.now();
+      }
     }
     delete state.sessions[id];
     state.sessionOrder = state.sessionOrder.filter((s) => s !== id);
+    state.orderAt = Date.now();
   });
   await forgetSessionJar(id);
   return { cookieSession };

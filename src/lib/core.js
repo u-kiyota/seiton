@@ -17,6 +17,8 @@ export const DEFAULT_SETTINGS = {
   autoCloseExclude: Object.freeze([]),
   // ウィンドウの左端に、今のワークスペースを示す専用タブ（色付きのタブグループ）を置く
   workspaceTab: true,
+  // chrome.storage.sync でワークスペース・セッション・設定を他のブラウザと同期する（issue #4）。端末ごとの設定で、この項目自体は同期しない
+  syncEnabled: false,
 };
 
 export const COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
@@ -66,6 +68,9 @@ export function defaultState() {
     // 最後にフォーカスしていたワークスペース。再起動時に Chrome がタブを復元しなかった場合はこれを開く
     lastFocusedWorkspaceId: null,
     settings: { ...DEFAULT_SETTINGS },
+    // 設定・並び順を最後に変えた時刻（同期の衝突で新しい方を採る。issue #4）
+    settingsAt: 0,
+    orderAt: 0,
   };
 }
 
@@ -78,6 +83,7 @@ export function normalizeState(raw) {
   for (const [id, s] of Object.entries(rawSessions)) {
     if (!s || typeof s !== 'object') continue;
     sessions[id] = { id, name: (typeof s.name === 'string' && s.name.trim()) || 'セッション', createdAt: s.createdAt || Date.now() };
+    if (Number.isFinite(s.updatedAt)) sessions[id].updatedAt = s.updatedAt;
   }
   if (!Object.keys(sessions).length) sessions[DEFAULT_SESSION_ID] = base.sessions[DEFAULT_SESSION_ID];
   const state = {
@@ -91,6 +97,9 @@ export function normalizeState(raw) {
   state.settings.autoCloseExclude = normalizeExcludePatterns(state.settings.autoCloseExclude);
   // 旧版の「Cookie の分離の ON / OFF」は廃止（権限があれば常に分ける）。残っていたら捨てる
   delete state.settings.cookieIsolation;
+  state.settings.syncEnabled = state.settings.syncEnabled === true;
+  state.settingsAt = Number.isFinite(raw.settingsAt) ? raw.settingsAt : 0;
+  state.orderAt = Number.isFinite(raw.orderAt) ? raw.orderAt : 0;
   state.sessionOrder = (Array.isArray(raw.sessionOrder) ? raw.sessionOrder : []).filter((id) => sessions[id]);
   for (const id of Object.keys(sessions)) {
     if (!state.sessionOrder.includes(id)) state.sessionOrder.push(id);
@@ -103,6 +112,10 @@ export function normalizeState(raw) {
     ws.groups = ws.groups || {};
     ws.icon = normalizeIcon(ws.icon);
     ws.autoClose = normalizeAutoCloseOverride(ws.autoClose, state.settings.autoClose);
+    // 同期で受け取ったがこのブラウザにはまだ無い接続フォルダのパス（issue #4）。文字列の配列以外は捨てる
+    if ('bookmarkFolderPath' in ws && !(Array.isArray(ws.bookmarkFolderPath) && ws.bookmarkFolderPath.length && ws.bookmarkFolderPath.every((t) => typeof t === 'string'))) {
+      delete ws.bookmarkFolderPath;
+    }
   }
   // 並び順。v1 ではセッションごとの workspaceIds に持っていたので、セッション順に連結して引き継ぐ
   const legacyOrder = state.sessionOrder.flatMap((id) => (Array.isArray(rawSessions[id]?.workspaceIds) ? rawSessions[id].workspaceIds : []));

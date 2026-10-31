@@ -1,7 +1,7 @@
 // ワークスペースの切替・スナップショット・復元。
 // ここの関数は serialize() の中から呼ばれる前提（内部で serialize を呼ばない＝デッドロック防止）。
 import {
-  uid, COLORS, normalizeIcon, snapshotTabs, tabUrl, isBlankUrl, isRestorableUrl, isWorkspaceTabUrl,
+  uid, COLORS, normalizeIcon, snapshotTabs, tabUrl, isBlankUrl, isRestorableUrl, isFileUrl, isWorkspaceTabUrl,
   matchWindowsToWorkspaces, missingTabs, planRestore, workspacesUsingSession, normalizeAutoCloseOverride, moveInOrder,
   parkedTabsForSnapshot, isManagerUrl, workspaceOfTab, appendSavedTabs, removeSavedTabsByUrl, takeSavedTabs,
 } from './core.js';
@@ -31,13 +31,31 @@ async function isNormalWindow(windowId) {
   }
 }
 
+/**
+ * 拡張に「ファイルの URL へのアクセス」が許可されているか（chrome://extensions の詳細で ON にする。issue #55）。
+ * 許可が無いと file:// のタブは chrome.tabs.create で開き直せないので、保存・復元の対象外にして切替でも閉じない。
+ * 判定できなければ許可なし扱い（開けないものとして閉じない側に倒す）
+ */
+export async function hasFileAccess() {
+  try {
+    return !!(await chrome.extension.isAllowedFileSchemeAccess());
+  } catch {
+    return false;
+  }
+}
+
+/** 切替で閉じずにそのまま残すタブか: 許可が無くて開き直せないローカルファイル（issue #55） */
+function staysOpen(tab, fileAccess) {
+  return !fileAccess && isFileUrl(tabUrl(tab));
+}
+
 async function readWindow(windowId) {
   const tabs = await chrome.tabs.query({ windowId });
   const groupsById = {};
   try {
     for (const g of await chrome.tabGroups.query({ windowId })) groupsById[g.id] = g;
   } catch { /* tabGroups 非対応環境 */ }
-  return { tabs, groupsById };
+  return { tabs, groupsById, fileAccess: await hasFileAccess() };
 }
 
 /** 変化があればワークスペースの保存タブを置き換える。戻り値: 変えたか */
@@ -78,12 +96,12 @@ export async function snapshotWindow(windowId) {
     const target = state.workspaces[record.workspaceId];
     if (!target || !tabs.length) continue;
     const view = parkedTabsForSnapshot(tabs, record);
-    const snap = snapshotTabs(view.tabs, view.groupsById, inherited);
+    const snap = snapshotTabs(view.tabs, view.groupsById, inherited, { fileAccess: data.fileAccess });
     if (snap.tabs.length && applySnapshot(target, snap)) changed = true;
   }
   const ws = state.workspaces[wsId];
   if (ws) {
-    const snap = snapshotTabs(data.tabs.filter((t) => !parkedIds.has(t.id)), data.groupsById, inherited);
+    const snap = snapshotTabs(data.tabs.filter((t) => !parkedIds.has(t.id)), data.groupsById, inherited, { fileAccess: data.fileAccess });
     // 保存できるタブが 1 枚も無い（ワークスペースタブなど拡張ページだけが残った）ときは上書きしない。
     // ワークスペースタブがあると、タブを 1 枚ずつ閉じていってもウィンドウが閉じず isWindowClosing にならないため
     if (snap.tabs.length && applySnapshot(ws, snap)) changed = true;
@@ -112,7 +130,8 @@ async function createInactiveTab(windowId, props, anchorId) {
  * 渡さなければ空白タブを一時的に前面へ置き、最後に閉じる。
  */
 async function restoreTabs(windowId, ws, settings, anchorId = null) {
-  const plan = planRestore(ws.tabs);
+  // 許可が無ければ保存済みの file:// は開かない（開けずに失敗するだけなので。issue #55）
+  const plan = planRestore(ws.tabs, { fileAccess: await hasFileAccess() });
   let ownAnchor = null;
   if (anchorId == null) {
     const anchor = await chrome.tabs.create({ windowId, url: 'about:blank', active: true });
@@ -214,7 +233,8 @@ export async function switchWorkspace(windowId, targetId, { park = false } = {})
   // 未割り当てウィンドウに中身のあるタブがある場合は、失わないよう自動で新しいワークスペースとして保存する
   if (!bindings[windowId]) {
     const current = await chrome.tabs.query({ windowId });
-    if (current.some((t) => isRestorableUrl(tabUrl(t)) && !isBlankUrl(tabUrl(t)))) {
+    const fileAccess = await hasFileAccess();
+    if (current.some((t) => isRestorableUrl(tabUrl(t), { fileAccess }) && !isBlankUrl(tabUrl(t)))) {
       const d = new Date();
       const name = `未整理 ${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
       // Cookie の入れ替えはこの後の切替で行う（ここで入れ替えると、閉じる直前のタブを読み込み直すことになる）
@@ -228,12 +248,12 @@ export async function switchWorkspace(windowId, targetId, { park = false } = {})
   let parked = false;
   let resumed = false;
   try {
-    const { tabs: current, groupsById } = await readWindow(windowId);
+    const { tabs: current, groupsById, fileAccess } = await readWindow(windowId);
     const parkedHere = await parkedGroupsInWindow(windowId, groupsById);
     const parkedGroupIds = new Set(parkedHere.map((p) => p.groupId));
     // 今のワークスペースのタブ。ワークスペースタブは閉じずに残す（切替後にグループのタイトル / 色だけが新しいワークスペースのものになる）。
-    // 休止グループ（他のワークスペースのタブ）も触らない
-    const oldTabs = current.filter((t) => !isWorkspaceTabUrl(tabUrl(t)) && !parkedGroupIds.has(t.groupId));
+    // 休止グループ（他のワークスペースのタブ）も触らない。開き直せないローカルファイルのタブ（issue #55）も閉じずに残す
+    const oldTabs = current.filter((t) => !isWorkspaceTabUrl(tabUrl(t)) && !parkedGroupIds.has(t.groupId) && !staysOpen(t, fileAccess));
     const oldIds = oldTabs.map((t) => t.id);
     const fresh = await loadState();
     const target = fresh.workspaces[targetId];
@@ -316,6 +336,7 @@ export async function closeParked(workspaceId) {
  * （最後のタブが抜けるとウィンドウが閉じる。ワークスペースタブだけが残ると保存タブが更新されず、移したタブが残ってしまう）
  */
 async function keepWindowsAlive(windowIds, leaving, parkedMap = {}) {
+  const fileAccess = await hasFileAccess();
   for (const windowId of windowIds) {
     let tabs;
     try {
@@ -323,8 +344,8 @@ async function keepWindowsAlive(windowIds, leaving, parkedMap = {}) {
     } catch {
       continue;
     }
-    // 休止グループのタブは他のワークスペースのものなので「残るタブ」に数えない
-    const remains = tabs.some((t) => !leaving.has(t.id) && isRestorableUrl(tabUrl(t)) && !isManagerUrl(tabUrl(t)) && !parkedMap[t.groupId]);
+    // 休止グループのタブは他のワークスペースのものなので「残るタブ」に数えない（保存されないローカルファイルのタブも同様）
+    const remains = tabs.some((t) => !leaving.has(t.id) && isRestorableUrl(tabUrl(t), { fileAccess }) && !isManagerUrl(tabUrl(t)) && !parkedMap[t.groupId]);
     if (!remains) await chrome.tabs.create({ windowId, active: false }).catch(() => {});
   }
 }
@@ -350,8 +371,10 @@ export async function moveTabsToWorkspace(tabIds, targetId) {
   if (!target) throw new Error('移動先のワークスペースが見つかりません');
   const bindings = await getBindings();
   const parkedMap = await getParked();
+  const fileAccess = await hasFileAccess();
   const tabs = [];
   let skipped = 0;
+  let fileSkipped = 0;
   for (const id of [...new Set(tabIds || [])]) {
     let t;
     try {
@@ -360,13 +383,22 @@ export async function moveTabsToWorkspace(tabIds, targetId) {
       continue; // 既に閉じられた
     }
     const url = tabUrl(t);
+    // 許可が無いローカルファイルのタブは、閉じて開き直せず保存にも載らないので移さない（issue #55）
+    if (!fileAccess && isFileUrl(url)) {
+      skipped++;
+      fileSkipped++;
+      continue;
+    }
     if (isManagerUrl(url) || isWorkspaceTabUrl(url) || !isRestorableUrl(url) || workspaceOfTab(t, bindings, parkedMap) === targetId) {
       skipped++;
       continue;
     }
     tabs.push(t);
   }
-  if (!tabs.length) throw new Error(skipped ? '選んだタブは既にそのワークスペースにあります' : '移動するタブがありません');
+  if (!tabs.length) {
+    if (fileSkipped === skipped && fileSkipped) throw new Error('ローカルファイル（file://）のタブは移動できません。chrome://extensions で「ファイルの URL へのアクセスを許可する」を ON にすると扱えます');
+    throw new Error(skipped ? '選んだタブは既にそのワークスペースにあります' : '移動するタブがありません');
+  }
   const dest = await destinationOf(targetId);
   const sourceWindows = [...new Set(tabs.map((t) => t.windowId))];
   const touched = new Set([...sourceWindows, ...(dest.windowId !== null ? [dest.windowId] : [])]);
@@ -423,8 +455,10 @@ export async function moveTabsToWorkspace(tabIds, targetId) {
 async function createSavedTabs(windowId, entries) {
   const [front] = await chrome.tabs.query({ windowId, active: true });
   const anchorId = front?.id ?? null;
+  const fileAccess = await hasFileAccess();
   const out = [];
   for (const t of entries) {
+    if (!fileAccess && isFileUrl(t.url)) continue; // 許可が無いと開けない（issue #55）
     try {
       const tab = await createInactiveTab(windowId, { url: t.url, pinned: !!t.pinned }, anchorId);
       await rememberInheritedAccess(tab.id, t.lastAccessed);
@@ -825,11 +859,13 @@ export async function reconcileWindows({ restoreLastIfBlank }) {
   for (const [wid, wsId] of Object.entries(bindings)) await setBinding(Number(wid), wsId);
 
   // ほぼ確実に同じワークスペースと言えるウィンドウにだけ、保存済みで欠けているタブを補う
+  const fileAccess = await hasFileAccess();
   for (const [wid, { workspaceId: wsId, score }] of Object.entries(matched)) {
     if (score < 0.8) continue;
     const windowId = Number(wid);
     const win = wins.find((w) => w.id === windowId);
-    const lacking = missingTabs(state.workspaces[wsId].tabs, win.tabs.map(tabUrl));
+    // 許可が無いローカルファイルは開けないので補わない（issue #55）
+    const lacking = missingTabs(state.workspaces[wsId].tabs, win.tabs.map(tabUrl)).filter((t) => fileAccess || !isFileUrl(t.url));
     if (!lacking.length) continue;
     switchingWindows.add(windowId);
     try {

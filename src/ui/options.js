@@ -30,7 +30,34 @@ async function loadData() {
   data = await call('getState');
   wsManager.render();
   await sessionManager.render();
+  renderFileAccess();
 }
+
+/**
+ * ローカルファイル（file://）のタブの扱い（issue #55）。「ファイルの URL へのアクセス」は chrome://extensions でしか切り替えられず、
+ * 許可が無いと file:// は開き直せないので、保存せず切替でも閉じない
+ */
+function renderFileAccess() {
+  const ok = !!data.fileAccess;
+  $('fileAccessState').textContent = ok ? '（アクセス許可あり）' : '（アクセス許可なし）';
+  $('fileAccessDesc').replaceChildren(
+    ok
+      ? '拡張に「ファイルの URL へのアクセス」が許可されているので、ローカルファイルのタブも他のタブと同じようにワークスペースに保存し、切替で閉じて開き直します。'
+      : '拡張に「ファイルの URL へのアクセス」が許可されていないため、ローカルファイルのタブは開き直せません。そのためワークスペースには保存せず、切替でも閉じずにそのウィンドウに残します（別のワークスペースのタブと並びます）。他のタブと同じように保存・復元したいときは、下のボタンで開く拡張の詳細ページで「ファイルの URL へのアクセスを許可する」を ON にしてください。この拡張がファイルの内容を読んだり送ったりすることはありません。',
+  );
+}
+
+$('openExtensionDetails').addEventListener('click', () => chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` }));
+// 許可の切替は storage の変化を伴わないので、このタブに戻ってきたときに取り直す（一覧は描き直さない: 編集中の行を壊さないため）
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  attempt(async () => {
+    const { fileAccess } = await call('getState');
+    if (fileAccess === data.fileAccess) return;
+    data.fileAccess = fileAccess;
+    renderFileAccess();
+  });
+});
 
 function showClosedCount(list) {
   const n = Array.isArray(list) ? list.length : 0;

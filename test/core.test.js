@@ -15,6 +15,7 @@ import {
   WORKSPACE_DRAG_TYPE, parseWorkspaceDragData, moveInOrder, dropPlacement, reorderDropIndex,
   workspaceOfTab, appendSavedTabs, removeSavedTabsByUrl, takeSavedTabs, moveTabsMessage,
   SHELF_DRAG_TYPE, normalizeShelf, shelfAdd, shelfRemove, shelfMove, parseShelfDragData,
+  isFileUrl, isRestorableUrl,
 } from '../src/lib/core.js';
 
 // ---- セッションごとの Cookie の分離（issue #12） ----
@@ -900,4 +901,35 @@ test('normalizeState: ワークスペースの shelf を正規化する（無け
   const st = normalizeState({ workspaces: { a: { name: 'A', shelf: [{ url: 'https://a/' }, { url: 'https://a/' }] }, b: { name: 'B' } } });
   assert.deepEqual(st.workspaces.a.shelf, [{ url: 'https://a/', title: 'https://a/' }]);
   assert.deepEqual(st.workspaces.b.shelf, []);
+});
+
+// ---- ローカルファイル（file://）のタブ（issue #55） ----
+
+test('isFileUrl / isRestorableUrl: ファイルの URL へのアクセスが無いときだけ file:// を対象外にする', () => {
+  assert.equal(isFileUrl('file:///C:/doc/a.html'), true);
+  assert.equal(isFileUrl('https://a.example/'), false);
+  assert.equal(isFileUrl(undefined), false);
+  assert.equal(isRestorableUrl('file:///C:/doc/a.html'), true, '既定（省略時）は従来どおり対象');
+  assert.equal(isRestorableUrl('file:///C:/doc/a.html', { fileAccess: true }), true);
+  assert.equal(isRestorableUrl('file:///C:/doc/a.html', { fileAccess: false }), false);
+  assert.equal(isRestorableUrl('https://a.example/', { fileAccess: false }), true, 'http(s) には影響しない');
+  assert.equal(isRestorableUrl('chrome-extension://abc/x.html', { fileAccess: true }), false);
+});
+
+test('snapshotTabs / planRestore: fileAccess: false なら file:// のタブを保存せず、復元計画にも入れない', () => {
+  const tabs = [
+    { index: 0, url: 'https://a.example/', title: 'A' },
+    { index: 1, url: 'file:///C:/doc/a.html', title: 'ローカル', active: true },
+    { index: 2, url: 'https://b.example/', title: 'B' },
+  ];
+  assert.deepEqual(snapshotTabs(tabs).tabs.map((t) => t.url), ['https://a.example/', 'file:///C:/doc/a.html', 'https://b.example/']);
+  const snap = snapshotTabs(tabs, {}, {}, { fileAccess: false });
+  assert.deepEqual(snap.tabs.map((t) => t.url), ['https://a.example/', 'https://b.example/']);
+  assert.ok(snap.tabs.every((t) => !t.active), '前面だった file:// を外しても他のタブを前面扱いにはしない');
+  const saved = snapshotTabs(tabs).tabs;
+  assert.equal(planRestore(saved).tabs.length, 3);
+  assert.equal(planRestore(saved).activeIndex, 1);
+  const plan = planRestore(saved, { fileAccess: false });
+  assert.deepEqual(plan.tabs.map((t) => t.url), ['https://a.example/', 'https://b.example/']);
+  assert.equal(plan.activeIndex, 1, '前面のタブが外れたら末尾を前面にする');
 });

@@ -135,6 +135,11 @@
           <div class="desc">管理パネルの検索ボックスで、ワークスペース・ブックマークに加えて Chrome の閲覧履歴もタイトル・URL で検索します。任意の権限で、許可すると検索のときに履歴を読むだけで、保存や送信はしません。いつでも取り消せます。</div>
         </div>
         <div class="field">
+          <label>ローカルファイル（file://）のタブ <span id="fileAccessState" class="muted small"></span></label>
+          <div class="desc" id="fileAccessDesc"></div>
+          <div class="row"><button id="openExtensionDetails" type="button">chrome://extensions で拡張の詳細を開く</button></div>
+        </div>
+        <div class="field">
           <label><input id="workspaceTab" type="checkbox"> ウィンドウの左端にワークスペースタブ（色付きのグループ）を表示</label>
           <div class="desc">タブ列の左端（固定タブの直後）に、今のワークスペースの名前と色のラベルを常に出します。ラベルをクリックすると開き、中のタブでワークスペースの切替・管理パネル・ブックマークを使えます。OFF にすると全ウィンドウのワークスペースタブを閉じます。</div>
         </div>

@@ -10,7 +10,7 @@ import {
   snapshotWindow, switchWorkspace, openInNewWindow, createWorkspace, updateWorkspace, reorderWorkspace,
   deleteWorkspace, updateWorkspaces, deleteWorkspaces, detachWindow, createSession, renameSession, deleteSession,
   openSessionWindows, reconcileWindows, onWindowFocused, onWindowRemoved, isSwitching, isNormalWindow, closeParked,
-  moveTabsToWorkspace, moveSavedTabs,
+  moveTabsToWorkspace, moveSavedTabs, hasFileAccess,
 } from './lib/workspace.js';
 import { forgetParkedGroup, parkedByWorkspace, refreshParkedGroups, replaceParkedTabId, noteReplacedTab } from './lib/parked.js';
 import {
@@ -363,7 +363,10 @@ async function getPalette(windowId) {
 // 読み取り専用の処理は直列キューを通さずに即応答する
 const readOnly = {
   // parked: 休止中のワークスペース（issue #35）→ { windowId, groupId }
-  getState: async () => ({ state: await loadState(), bindings: await getBindings(), parked: await parkedByWorkspace() }),
+  // fileAccess: 「ファイルの URL へのアクセス」の許可（issue #55）。無いと file:// のタブは保存されず、切替でも閉じずに残る
+  getState: async () => ({
+    state: await loadState(), bindings: await getBindings(), parked: await parkedByWorkspace(), fileAccess: await hasFileAccess(),
+  }),
   getPalette: ({ windowId }) => getPalette(windowId),
   listFolders: () => listAllFolders(),
   // 管理パネルの開閉は状態を書き換えないので直列キューを通さない（切替中でもすぐ開く。開閉自体は manager.js 内で直列化）

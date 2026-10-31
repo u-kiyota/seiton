@@ -179,11 +179,21 @@ export function managerPopupBounds(win, { ratio = 0.85, minWidth = 720, minHeigh
   };
 }
 
-/** 保存・復元の対象にする URL か */
-export function isRestorableUrl(url) {
+/** ローカルファイル（file://）の URL か */
+export function isFileUrl(url) {
+  return typeof url === 'string' && url.startsWith('file:');
+}
+
+/**
+ * 保存・復元の対象にする URL か。
+ * fileAccess: 拡張に「ファイルの URL へのアクセス」が許可されているか（issue #55）。許可が無いと file:// は
+ * chrome.tabs.create で開き直せないため対象外にする（呼び出し側は、そのタブを切替で閉じずにそのまま残す）
+ */
+export function isRestorableUrl(url, { fileAccess = true } = {}) {
   if (!url) return false;
   if (url.startsWith('chrome-extension://')) return false; // 自分自身の UI や他拡張のページ
   if (url.startsWith('devtools://')) return false;
+  if (!fileAccess && isFileUrl(url)) return false;
   return true;
 }
 
@@ -196,14 +206,15 @@ export function isBlankUrl(url) {
  * chrome.tabs.Tab[] と tabGroups を保存用スナップショットに変換する。
  * groupsById: { [groupId]: { title, color, collapsed } }
  * inherited: { [tabId]: { saved, restoredAt } }（復元したタブが引き継ぐ最終アクセス時刻。effectiveLastAccessed 参照）
+ * fileAccess: false なら file:// のタブを保存しない（isRestorableUrl 参照。issue #55）
  */
-export function snapshotTabs(tabs, groupsById = {}, inherited = {}) {
+export function snapshotTabs(tabs, groupsById = {}, inherited = {}, { fileAccess = true } = {}) {
   const sorted = [...tabs].sort((a, b) => a.index - b.index);
   const groups = {};
   const out = [];
   for (const t of sorted) {
     const url = tabUrl(t);
-    if (!isRestorableUrl(url)) continue;
+    if (!isRestorableUrl(url, { fileAccess })) continue;
     let groupKey = null;
     if (t.groupId !== undefined && t.groupId !== -1 && groupsById[t.groupId]) {
       groupKey = 'g' + t.groupId;
@@ -283,8 +294,8 @@ export function matchWindowsToWorkspaces(windows, candidates, threshold = 0.5) {
  * active 印が複数あっても最後の1件だけを前面にする。印が無ければ末尾。
  * 戻り値の activeIndex は tabs が空なら -1。
  */
-export function planRestore(tabs) {
-  const restorable = (tabs || []).filter((t) => isRestorableUrl(t.url));
+export function planRestore(tabs, { fileAccess = true } = {}) {
+  const restorable = (tabs || []).filter((t) => isRestorableUrl(t.url, { fileAccess }));
   let activeIndex = -1;
   for (let i = 0; i < restorable.length; i++) {
     if (restorable[i].active) activeIndex = i;

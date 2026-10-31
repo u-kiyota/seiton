@@ -12,7 +12,7 @@
 
 | | |
 |---|---|
-| Chrome ウェブストア | https://chromewebstore.google.com/detail/seiton/（公開後に ID を記載） |
+| Chrome ウェブストア | https://chromewebstore.google.com/detail/seiton/nekhambnhfgfbjmhmpngfbchclpenkof |
 | 使い方ページ | インストール時に自動で開きます。設定・管理画面の「使い方を見る」、管理パネル左下の「? 使い方」からいつでも開けます |
 | 仕様の詳細 | [docs/spec.md](docs/spec.md) |
 | プライバシーポリシー | [store/privacy-policy.md](store/privacy-policy.md) |
@@ -35,7 +35,7 @@
 
 ### Chrome ウェブストアから（推奨）
 
-1. [Chrome ウェブストアの seiton のページ](https://chromewebstore.google.com/detail/seiton/)（公開後に ID を記載）を開き、「Chrome に追加」を押す
+1. [Chrome ウェブストアの seiton のページ](https://chromewebstore.google.com/detail/seiton/nekhambnhfgfbjmhmpngfbchclpenkof)を開き、「Chrome に追加」を押す
 2. ツールバーのパズルアイコンから seiton をピン留めしておくと、ワンクリックでクイックパレットが開けて便利です
 
 初回インストール時には使い方ページが自動で開きます。
@@ -91,7 +91,8 @@
 - セッション（Cookie の分離）は Chrome 全体で同時に 1 つだけで、切替は全ウィンドウに及びます。localStorage などサイト側の他の保存領域は分けません
 - 同期は `chrome.storage.sync` の容量（100 KB）の範囲で行い、収まらない分は古いワークスペースからタブだけを省きます。退避した Cookie と閉じたタブの履歴は同期しません
 - 未割り当てのウィンドウで別のワークスペースに切り替えると、そのウィンドウのタブは「未整理 M/D HH:mm」というワークスペースとして自動保存されます（タブを失わないため）
-- シークレットウィンドウは対象外です。`chrome://` の一部や `file://` は開けないことがあり、その場合は復元をスキップします
+- シークレットウィンドウは対象外です。`chrome://` の一部は開けないことがあり、その場合は復元をスキップします
+- ローカルファイル（`file://`）のタブは、拡張に「ファイルの URL へのアクセス」が許可されていないと開き直せないため、ワークスペースに保存せず、切替でも閉じずにそのウィンドウに残します。`chrome://extensions` の seiton の詳細で許可すると他のタブと同じように保存・復元されます
 
 仕組みの詳細・データの保存形式・既知の制限は [docs/spec.md](docs/spec.md) にまとめています。
 

@@ -1,5 +1,5 @@
 import {
-  tabUrl, normalizeUrlForMatch, isManagerUrl, isWorkspaceTabUrl, matchesQuery,
+  tabUrl, normalizeUrlForMatch, isManagerUrl, isWorkspaceTabUrl, isFileUrl, matchesQuery,
   TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl, workspaceHotkey, hotkeyToIndex,
   autoCloseDaysFrom, autoCloseDuration, formatAutoCloseDuration, AUTO_CLOSE_UNIT_LABELS,
   autoCloseExcludeMatch, excludePatternsForUrl, resolveSwitchMode, switchKeyHints, SWITCH_MODE_SHORT, moveTabsMessage,
@@ -812,6 +812,13 @@ function renderTabs() {
   else if (view.parked) {
     nodes.push(h('div', { class: 'hint' }, `${view.windowId === windowId ? 'このウィンドウ' : '別ウィンドウ'}で休止中（折りたたんだグループ「⏸ …」）のタブです。行を開くとそのタブへ移動します（ワークスペースは切り替わりません）。`));
   } else if (view.windowId !== windowId) nodes.push(h('div', { class: 'hint' }, '別ウィンドウで開いています。行を開くとそのタブへ移動します。'));
+  // ローカルファイル（issue #55）: 「ファイルの URL へのアクセス」が許可されていないと開き直せないので、保存せず切替でも閉じない
+  const localFiles = !data.fileAccess && tabs.some((t) => isFileUrl(tabUrl(t)));
+  if (localFiles) {
+    nodes.push(h('div', { class: 'hint' },
+      'ローカルファイル（file://）のタブは、拡張に「ファイルの URL へのアクセス」が許可されていないため、ワークスペースには保存せず、切替でも閉じずにこのウィンドウに残します。',
+      h('a', { href: '#', onclick: (e) => { e.preventDefault(); openSettings('display'); } }, '設定・管理の「表示・操作」'), 'から許可の手順を確認できます。'));
+  }
   let lastGroup;
   tabs.forEach((t, i) => {
     const gid = t.groupId ?? -1;
@@ -835,7 +842,7 @@ function renderTabs() {
     nodes.push(makeTabDraggable(entryRow({
       url,
       title: (t.pinned ? '📌 ' : '') + (t.title || url || '新しいタブ'),
-      sub: t.discarded ? 'メモリ解放済み' : hostOf(url),
+      sub: t.discarded ? 'メモリ解放済み' : localFiles && isFileUrl(url) ? 'ローカルファイル（切替で閉じずに残す）' : hostOf(url),
       extra: exclude,
       active: t.active,
       discarded: t.discarded,

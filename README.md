@@ -12,7 +12,7 @@
 
 | | |
 |---|---|
-| Chrome ウェブストア | https://chromewebstore.google.com/detail/seiton/（公開後に ID を記載） |
+| Chrome ウェブストア | https://chromewebstore.google.com/detail/seiton/nekhambnhfgfbjmhmpngfbchclpenkof |
 | 使い方ページ | インストール時に自動で開きます。設定・管理画面の「使い方を見る」、管理パネル左下の「? 使い方」からいつでも開けます |
 | 仕様の詳細 | [docs/spec.md](docs/spec.md) |
 | プライバシーポリシー | [store/privacy-policy.md](store/privacy-policy.md) |
@@ -35,7 +35,7 @@
 
 ### Chrome ウェブストアから（推奨）
 
-1. [Chrome ウェブストアの seiton のページ](https://chromewebstore.google.com/detail/seiton/)（公開後に ID を記載）を開き、「Chrome に追加」を押す
+1. [Chrome ウェブストアの seiton のページ](https://chromewebstore.google.com/detail/seiton/nekhambnhfgfbjmhmpngfbchclpenkof)を開き、「Chrome に追加」を押す
 2. ツールバーのパズルアイコンから seiton をピン留めしておくと、ワンクリックでクイックパレットが開けて便利です
 
 初回インストール時には使い方ページが自動で開きます。

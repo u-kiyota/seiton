@@ -52,20 +52,26 @@ function resolveIndicator(win, state, bindings) {
   return { title: label.title, images: ws ? iconImages(label) : null };
 }
 
-/** 1 タブへ適用。タブが閉じられた直後などの失敗（No tab with id）は無視する */
+/**
+ * 1 タブへ適用。タブが閉じられた直後などの失敗（No tab with id）は無視する。
+ * setIcon は Promise 形式で catch しても「Unchecked runtime.lastError」がコンソールに出ることがあるため、
+ * コールバック形式にして lastError を読み捨てる
+ */
 async function applyToTab(tabId, { title, images }) {
-  const run = (fn) => {
+  const run = (fn) => new Promise((resolve) => {
+    const done = () => {
+      void chrome.runtime.lastError;
+      resolve();
+    };
     try {
-      return Promise.resolve(fn()).catch(() => {});
+      fn(done);
     } catch {
-      return Promise.resolve();
+      resolve();
     }
-  };
+  });
   await Promise.all([
-    run(() => (images
-      ? chrome.action.setIcon({ tabId, imageData: images })
-      : chrome.action.setIcon({ tabId, path: defaultIconPath() }))),
-    run(() => chrome.action.setTitle({ tabId, title })),
+    run((cb) => chrome.action.setIcon(images ? { tabId, imageData: images } : { tabId, path: defaultIconPath() }, cb)),
+    run((cb) => chrome.action.setTitle({ tabId, title }, cb)),
   ]);
 }
 

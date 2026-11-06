@@ -1,3 +1,4 @@
+import { uiText, setText, setTranslatedAttribute, replaceChildren, languageOnlyChange, getLanguage, localizedValue, commandLabel, translateText } from './i18n.js';
 // ワークスペースタブ: ウィンドウ左端の色付きグループの中に置かれ、このウィンドウの今のワークスペースを示すページ。
 // 今のワークスペース・全ワークスペースの一覧（切替 / 新しいウィンドウ）・管理パネルを開く・接続フォルダのブックマークを表示する。
 // タブは別ウィンドウへドラッグされることもあるので、描画のたびに自分のウィンドウを確かめる。
@@ -49,7 +50,7 @@ function setFavicon(label) {
       canvas.getContext('2d').putImageData(img, 0, 0);
       href = canvas.toDataURL('image/png');
     } catch (e) {
-      console.warn('[wstab] favicon を描画できません', e);
+      console.warn(uiText("[wstab] favicon を描画できません"), e);
     }
   }
   $('favicon').href = href;
@@ -59,22 +60,22 @@ function renderCurrent(ws) {
   const box = $('current');
   if (!ws) {
     box.style.borderLeftColor = 'var(--border)';
-    box.replaceChildren(
+    replaceChildren(box,
       h('span', { class: 'big-icon text', style: { background: COLOR_HEX.grey } }, '?'),
       h('div', { class: 'names' },
-        h('h1', { class: 'ws-name' }, '未割り当て'),
-        h('span', { class: 'muted' }, 'このウィンドウはワークスペースに割り当てられていません。下の一覧から選ぶと、このウィンドウをそのワークスペースに切り替えます。'),
+        h('h1', { class: 'ws-name' }, uiText("未割り当て")),
+        h('span', { class: 'muted' }, uiText("このウィンドウはワークスペースに割り当てられていません。下の一覧から選ぶと、このウィンドウをそのワークスペースに切り替えます。")),
       ),
     );
     return;
   }
   const label = indicatorLabel(ws, sessionName(ws.sessionId));
   box.style.borderLeftColor = label.color;
-  box.replaceChildren(
+  replaceChildren(box,
     h('span', { class: `big-icon${label.emoji ? '' : ' text'}`, style: { background: label.emoji ? `color-mix(in srgb, ${label.color} 22%, transparent)` : label.color } }, label.text),
     h('div', { class: 'names' },
       h('h1', { class: 'ws-name ellipsis' }, ws.name),
-      h('span', { class: 'ws-session', title: '使うセッション' }, sessionName(ws.sessionId) || 'セッションなし'),
+      h('span', { class: 'ws-session', title: uiText("使うセッション") }, sessionName(ws.sessionId) || uiText("セッションなし")),
     ),
   );
 }
@@ -83,25 +84,25 @@ function renderList(currentId) {
   const { state } = data;
   const list = $('list');
   if (!state.workspaceOrder.length) {
-    list.replaceChildren(h('div', { class: 'empty' }, 'ワークスペースがありません。管理パネルの ＋ から作成してください。'));
+    replaceChildren(list, h('div', { class: 'empty' }, uiText("ワークスペースがありません。管理パネルの ＋ から作成してください。")));
     return;
   }
-  list.replaceChildren(...state.workspaceOrder.map((id) => {
+  replaceChildren(list, ...state.workspaceOrder.map((id) => {
     const ws = state.workspaces[id];
     const here = id === currentId;
     const openIn = windowOf(id);
     const head = h('div', {
       class: 'ws-head row',
-      title: here ? 'このウィンドウで開いています' : openIn != null ? 'クリックで開いているウィンドウへ移動' : 'クリックでこのウィンドウを切り替える',
+      title: here ? uiText("このウィンドウで開いています") : openIn != null ? uiText("クリックで開いているウィンドウへ移動") : uiText("クリックでこのウィンドウを切り替える"),
       onclick: () => { if (!here) switchHere(id); },
     },
       wsIcon(ws),
       h('span', { class: 'grow ellipsis' }, ws.name),
       state.sessionOrder.length > 1 ? h('span', { class: 'ws-session' }, sessionName(ws.sessionId)) : null,
-      here ? h('span', { class: 'badge here' }, 'ここ') : openIn != null ? h('span', { class: 'badge' }, '別') : null,
+      here ? h('span', { class: 'badge here' }, uiText("ここ")) : openIn != null ? h('span', { class: 'badge' }, uiText("別")) : null,
       h('span', { class: 'actions' },
         h('button', {
-          class: 'icon', type: 'button', title: openIn != null && !here ? '開いているウィンドウへ移動' : '新しいウィンドウで開く',
+          class: 'icon', type: 'button', title: openIn != null && !here ? uiText("開いているウィンドウへ移動") : uiText("新しいウィンドウで開く"),
           onclick: (e) => { e.stopPropagation(); openNewWindow(id); },
         }, '⧉'),
       ),
@@ -113,15 +114,15 @@ function renderList(currentId) {
 function switchHere(id) {
   attempt(async () => {
     const res = await call('switchWorkspace', { windowId, workspaceId: id });
-    if (res?.focused) toast('別のウィンドウで開いています');
-    else if (res?.cookieSession) toast(`Cookie をセッション「${res.cookieSession.toName}」に入れ替えました`);
+    if (res?.focused) toast(uiText("別のウィンドウで開いています"));
+    else if (res?.cookieSession) toast(uiText("Cookie をセッション「{p0}」に入れ替えました", {p0: (res.cookieSession.toName)}));
   });
 }
 
 function openNewWindow(id) {
   attempt(async () => {
     const res = await call('openInNewWindow', { workspaceId: id });
-    if (res?.cookieSession) toast(`Cookie をセッション「${res.cookieSession.toName}」に入れ替えました`);
+    if (res?.cookieSession) toast(uiText("Cookie をセッション「{p0}」に入れ替えました", {p0: (res.cookieSession.toName)}));
   });
 }
 
@@ -134,13 +135,13 @@ async function bookmarksFor(folderId) {
 
 async function renderBookmarks(ws, seq) {
   const body = $('bookmarks');
-  $('bmTitle').textContent = 'ブックマーク';
+  setText($('bmTitle'), uiText("ブックマーク"));
   if (!ws) {
-    body.replaceChildren(h('div', { class: 'empty' }, 'ワークスペースに切り替えると、接続フォルダのブックマークを表示します。'));
+    replaceChildren(body, h('div', { class: 'empty' }, uiText("ワークスペースに切り替えると、接続フォルダのブックマークを表示します。")));
     return;
   }
   if (!ws.bookmarkFolderId) {
-    body.replaceChildren(h('div', { class: 'empty' }, 'ブックマークフォルダが未接続です（管理パネルの ✎ から接続できます）。'));
+    replaceChildren(body, h('div', { class: 'empty' }, uiText("ブックマークフォルダが未接続です（管理パネルの ✎ から接続できます）。")));
     return;
   }
   let bm;
@@ -151,12 +152,12 @@ async function renderBookmarks(ws, seq) {
   }
   if (seq !== loadSeq) return;
   if (!bm || bm.error) {
-    body.replaceChildren(h('div', { class: 'empty' }, bm?.error || 'フォルダが見つかりません。'));
+    replaceChildren(body, h('div', { class: 'empty' }, bm?.error ? localizedValue(() => translateText(bm.error)) : uiText("フォルダが見つかりません。")));
     return;
   }
-  $('bmTitle').textContent = `ブックマーク: ${bm.title}（${bm.items.length}）`;
+  setText($('bmTitle'), uiText("ブックマーク: {p0}（{p1}）", {p0: (bm.title), p1: (bm.items.length)}));
   if (!bm.items.length) {
-    body.replaceChildren(h('div', { class: 'empty' }, `「${bm.title}」は空です（Ctrl+D / Alt+Shift+D で追加）。`));
+    replaceChildren(body, h('div', { class: 'empty' }, uiText("「{p0}」は空です（Ctrl+D / Alt+Shift+D で追加）。", {p0: (bm.title)})));
     return;
   }
   const nodes = [];
@@ -177,7 +178,7 @@ async function renderBookmarks(ws, seq) {
       h('span', { class: 'host muted small ellipsis' }, hostOf(it.url)),
     ));
   }
-  body.replaceChildren(...nodes);
+  replaceChildren(body, ...nodes);
 }
 
 async function load() {
@@ -187,7 +188,7 @@ async function load() {
   windowId = win.id;
   data = fresh;
   const ws = data.state.workspaces[data.bindings[windowId]] || null;
-  document.title = ws ? (workspaceTabGroupProps(ws).title || ws.name) : 'seiton — 未割り当て';
+  setText(document.querySelector('title'), ws ? (workspaceTabGroupProps(ws).title || ws.name) : uiText("seiton — 未割り当て"));
   setFavicon(ws ? indicatorLabel(ws, sessionName(ws.sessionId)) : null);
   renderCurrent(ws);
   renderList(ws?.id || null);
@@ -203,7 +204,7 @@ $('openManager').addEventListener('click', () => attempt(() => call('openManager
 $('options').addEventListener('click', () => chrome.runtime.openOptionsPage());
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if ((area === 'local' && changes.state) || (area === 'session' && changes.bindings)) scheduleLoad();
+  if ((area === 'local' && changes.state && !languageOnlyChange(changes.state)) || (area === 'session' && changes.bindings)) scheduleLoad();
 });
 const dropBookmarks = () => { bmCache = { folderId: null, value: undefined }; scheduleLoad(); };
 for (const ev of ['onCreated', 'onRemoved', 'onChanged', 'onMoved']) chrome.bookmarks[ev].addListener(dropBookmarks);

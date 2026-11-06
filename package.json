@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "ワークスペース単位でタブ・ブックマークを管理する Chrome 拡張",
+  "description": "A Chrome extension for organizing tabs and bookmarks into workspaces",
   "scripts": {
     "test": "node --test",
     "check": "node scripts/check.js",

@@ -6,7 +6,7 @@
 
 - **何か**: ワークスペース単位でタブとブックマークを管理する Chrome 拡張（Manifest V3）。
 - **ビルド無し**: ソースをそのまま `chrome://extensions` で読み込む。バンドラ・トランスパイラ・依存パッケージは無く、`package.json` の scripts は Node 標準機能だけで動く。
-- **言語**: ソースのコメント・UI・ドキュメント・コミットメッセージはすべて日本語。識別子は英語。
+- **言語**: ソースのコメント・コミットメッセージは日本語。公開ドキュメントは英語を主とし、日本語訳は別ファイルで提供できる。UI は英語・日本語を切り替えられるようにする。識別子は英語。
 - **実行環境**: Node 22 以上（CI も 22）。Chrome 121 以上（`minimum_chrome_version`）。
 - **配布**: GitHub Release（タグ `v*` で zip を自動生成）と Chrome ウェブストア。
 
@@ -24,7 +24,7 @@ npm run check   # scripts/check.js。manifest の整合・参照ファイルの�
 
 ```
 manifest.json          拡張の定義。name / description は _locales の __MSG_*__
-_locales/{en,ja}/      ストア掲載用の name / description（UI 本体の文言は日本語のハードコード）
+_locales/{en,ja}/      ストア掲載用の name / description（UI 本体も英語・日本語の翻訳を用意する）
 src/background.js      サービスワーカー。Chrome のイベントと UI からのメッセージを処理する唯一の「状態を書き込む場所」
 src/lib/core.js        chrome API に依存しない純粋ロジック（スナップショット化・URL 照合・並び替え・除外判定など）
 src/lib/store.js       storage.local（永続）/ storage.session（ウィンドウ⇔ワークスペースの対応）と直列実行キュー
@@ -48,7 +48,7 @@ docs/                  設計の詳細・手動テストのチェックリスト
 - **manifest の制約**: `commands` の `suggested_key` は 4 個まで。`_locales/*/messages.json` の `extDescription` は 132 文字以内（`npm run check` が検証する）。
 - **外部通信をしない**。fetch で外部に送らない、リモートコードを読み込まない。プライバシーポリシーと掲載情報がそれを前提にしている。
 - **他社製品名を書かない**。README・掲載文・コード・コメントに他のタブ管理拡張の名前を出さない（ストアの審査上の理由）。
-- **UI の文言は日本語**。絵文字のボタン（✎ ⧉ ⏸ 🛡 など）は既存の使い方に合わせる。
+- **UI の文言は英語・日本語を用意する**。新しい文言は両言語の翻訳に追加し、設定の言語選択に従って表示する。絵文字のボタン（✎ ⧉ ⏸ 🛡 など）は既存の使い方に合わせる。
 - **Chrome のタブは隠せない**。切替は「保存して閉じ、開き直す」が基本で、例外が「休止」（折りたたんだタブグループに残す）。この前提を崩す変更は慎重に。
 
 ## ファイル編集の注意

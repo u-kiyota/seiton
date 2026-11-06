@@ -1,13 +1,88 @@
-# seiton — Chrome ウェブストアの掲載情報
+# seiton — Chrome Web Store listing
 
-ストアに登録している掲載文・権限の説明の原稿。掲載情報を更新するときはここを直してからダッシュボードに貼る。
+Draft listing text and permission explanations. Update this file before copying to the store dashboard.
 
-- 名前: `seiton`（manifest の `name` と同じ）
-- 概要 / 詳細説明は日本語と英語の 2 言語（`_locales/ja`・`_locales/en` に対応）。拡張の UI は日本語のみ
-- スクリーンショット（1280×800）: `store/screenshots/`（`_ja` / `_en`）
-- アイコン: `icons/icon128.png`
-- プライバシーポリシー: `store/privacy-policy.md`
-- 配布: 一般公開・全地域・無料
+- Name: seiton (matches manifest).
+- Listing and UI: English and Japanese.
+- Screenshots: store/screenshots/ (_en / _ja), 1280×800.
+- Icon: icons/icon128.png.
+- Privacy: [privacy-policy.md](privacy-policy.md).
+- Distribution: public, all regions, free.
+
+## English
+
+### Summary (manifest description, 132 characters max)
+
+```
+Organize tabs and bookmarks into workspaces and switch fast. Also login-session switching, cross-browser sync, and tab auto-close.
+```
+
+### Detailed description
+
+```
+seiton is a tab manager that groups your tabs and bookmarks into "workspaces" — one per project, client, or topic — so you only keep open what you need right now.
+
+The interface supports English and Japanese. Choose Automatic (browser language), English, or Japanese under Settings & management > Display & behavior > Language.
+
+■ Workspaces
+- Save each workspace's tabs (URL, title, pinned state, tab groups) and switch with one click or a keyboard shortcut
+- Windows and workspaces are matched again automatically after a browser restart
+- "Park and switch" keeps the current tabs open as a collapsed tab group, so you don't lose half-filled forms
+- Move selected tabs to another workspace in bulk
+
+■ Bookmarks
+- Link a bookmark folder to each workspace
+- Bookmarks saved with Ctrl+D or Alt+Shift+D go straight into the current workspace's folder
+- A "frequently opened" shelf for pages that don't deserve a bookmark
+
+■ Quick palette (Alt+K)
+- Incrementally search open tabs, workspace bookmarks, and workspaces — keyboard only
+- The management panel can also search your browsing history, if you allow it
+
+■ Sessions (switch login state)
+- Choose which account each workspace uses (e.g. production, staging, personal)
+- Only if you grant permission, seiton swaps site cookies when you switch, so you can move between logins. Other site storage such as localStorage is not separated, so some sites may not be fully isolated.
+- Saved cookies are encrypted (AES-GCM) in your browser
+
+■ Memory and tab hygiene
+- Lazy loading: only the front tab loads when a workspace opens
+- Optional auto-close for tabs you haven't used for a while (off by default, with an exclusion list). Closed tabs can be reopened from history.
+
+■ Sync
+- Continue on another computer via Chrome's extension sync (chrome.storage.sync)
+- No sign-up and no server of our own
+
+■ Privacy
+- Data stays in your browser unless you enable sync. With sync enabled, Google's Chrome Sync stores saved tab URLs/titles and workspace, session, and settings data under your Google account. Saved cookies, browsing-history search results, and auto-closed tab history are not synced. Nothing is sent to developer-operated servers.
+- No ads, analytics, or tracking.
+
+Shortcuts (customizable at chrome://extensions/shortcuts)
+- Alt+K: Quick palette
+- Alt+Shift+K: Management panel
+- Alt+Shift+D: Bookmark the current tab into the workspace folder
+- Alt+Shift+N: Next workspace
+```
+
+### Single purpose
+
+```
+seiton saves and switches between "workspaces" — each a set of tabs, a bookmark folder, and the login account used for that work. Cookie swapping switches the account tied to a workspace; sync, auto-close, and search exist only to save and organize workspaces.
+```
+
+### Permission justification
+
+| Permission | Justification |
+|---|---|
+| tabs | To save each workspace's tabs (URL, title, pinned, active) and reopen them on switch, and to list/search open tabs in the quick palette. |
+| tabGroups | To save and restore tab groups, and to collapse tabs into a group when the user chooses "Park and switch". |
+| storage | To store workspaces, sessions, settings and closed-tab history locally (chrome.storage.local), and to sync them via chrome.storage.sync only when the user turns sync on. |
+| unlimitedStorage | Cookies saved per session (several MB each) and many workspaces can exceed the default 10 MB local quota. Data stays in the browser. |
+| bookmarks | To create/link a bookmark folder per workspace, move bookmarks the user saves into that folder, and list/search them. |
+| alarms | To run optional auto-close and memory release periodically, and to batch sync writes. |
+| favicon | To show icons for saved tabs and bookmarks without storing favicon images. |
+| history (optional) | Requested only when the user clicks "Allow" in the management panel's search results to include browsing history (title/URL). History is read only at search time and is never stored or sent. It can be revoked from the settings page. |
+| cookies (optional) | Requested only when the user adds a second session, after an in-extension consent dialog that explains what is stored, where, and how to delete it. Used to save the current cookies and restore the target session's cookies when switching workspaces. Saved cookies are encrypted (AES-GCM) and stored only in the browser, never transmitted. |
+| `<all_urls>` host (optional) | Requested together with cookies, only for the session feature. Saving and restoring login cookies requires access to every site the user is signed in to. The extension does not read page content or inject scripts. |
 
 ## 日本語
 
@@ -99,78 +174,3 @@ seiton は、作業ごとに「ワークスペース」を作り、タブとブ�
 | その他（個人を特定できる情報 / 健康 / 財務 / 通信 / 位置 / アクティビティ / サイトの内容） | なし | 扱わない |
 
 認証項目: 第三者への販売・転送なし、目的外の使用なし、信用力判断・融資目的の使用なし。
-
-## English
-
-### Summary (manifest description, 132 characters max)
-
-```
-Organize tabs and bookmarks into workspaces and switch fast. Also login-session switching, cross-browser sync, and tab auto-close.
-```
-
-### Detailed description
-
-```
-seiton is a tab manager that groups your tabs and bookmarks into "workspaces" — one per project, client, or topic — so you only keep open what you need right now.
-
-Note: The user interface is currently available in Japanese only.
-
-■ Workspaces
-- Save each workspace's tabs (URL, title, pinned state, tab groups) and switch with one click or a keyboard shortcut
-- Windows and workspaces are matched again automatically after a browser restart
-- "Park and switch" keeps the current tabs open as a collapsed tab group, so you don't lose half-filled forms
-- Move selected tabs to another workspace in bulk
-
-■ Bookmarks
-- Link a bookmark folder to each workspace
-- Bookmarks saved with Ctrl+D or Alt+Shift+D go straight into the current workspace's folder
-- A "frequently opened" shelf for pages that don't deserve a bookmark
-
-■ Quick palette (Alt+K)
-- Incrementally search open tabs, workspace bookmarks, and workspaces — keyboard only
-- The management panel can also search your browsing history, if you allow it
-
-■ Sessions (switch login state)
-- Choose which account each workspace uses (e.g. production, staging, personal)
-- Only if you grant permission, seiton swaps site cookies when you switch, so you can move between logins. Other site storage such as localStorage is not separated, so some sites may not be fully isolated.
-- Saved cookies are encrypted (AES-GCM) in your browser
-
-■ Memory and tab hygiene
-- Lazy loading: only the front tab loads when a workspace opens
-- Optional auto-close for tabs you haven't used for a while (off by default, with an exclusion list). Closed tabs can be reopened from history.
-
-■ Sync
-- Continue on another computer via Chrome's extension sync (chrome.storage.sync)
-- No sign-up and no server of our own
-
-■ Privacy
-- All data stays in your browser (and your own Chrome sync storage). Nothing is sent to the developer's servers.
-- No ads, analytics, or tracking.
-
-Shortcuts (customizable at chrome://extensions/shortcuts)
-- Alt+K: Quick palette
-- Alt+Shift+K: Management panel
-- Alt+Shift+D: Bookmark the current tab into the workspace folder
-- Alt+Shift+N: Next workspace
-```
-
-### Single purpose
-
-```
-seiton saves and switches between "workspaces" — each a set of tabs, a bookmark folder, and the login account used for that work. Cookie swapping switches the account tied to a workspace; sync, auto-close, and search exist only to save and organize workspaces.
-```
-
-### Permission justification
-
-| Permission | Justification |
-|---|---|
-| tabs | To save each workspace's tabs (URL, title, pinned, active) and reopen them on switch, and to list/search open tabs in the quick palette. |
-| tabGroups | To save and restore tab groups, and to collapse tabs into a group when the user chooses "Park and switch". |
-| storage | To store workspaces, sessions, settings and closed-tab history locally (chrome.storage.local), and to sync them via chrome.storage.sync only when the user turns sync on. |
-| unlimitedStorage | Cookies saved per session (several MB each) and many workspaces can exceed the default 10 MB local quota. Data stays in the browser. |
-| bookmarks | To create/link a bookmark folder per workspace, move bookmarks the user saves into that folder, and list/search them. |
-| alarms | To run optional auto-close and memory release periodically, and to batch sync writes. |
-| favicon | To show icons for saved tabs and bookmarks without storing favicon images. |
-| history (optional) | Requested only when the user clicks "Allow" in the management panel's search results to include browsing history (title/URL). History is read only at search time and is never stored or sent. It can be revoked from the settings page. |
-| cookies (optional) | Requested only when the user adds a second session, after an in-extension consent dialog that explains what is stored, where, and how to delete it. Used to save the current cookies and restore the target session's cookies when switching workspaces. Saved cookies are encrypted (AES-GCM) and stored only in the browser, never transmitted. |
-| `<all_urls>` host (optional) | Requested together with cookies, only for the session feature. Saving and restoring login cookies requires access to every site the user is signed in to. The extension does not read page content or inject scripts. |

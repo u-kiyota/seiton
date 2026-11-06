@@ -1,10 +1,13 @@
+import { uiText, setText, setTranslatedAttribute, textNode, isLocalizedText, initializeI18n, translateText } from './i18n.js';
 // UI → サービスワーカーへの呼び出しと、DOM 生成の小さなヘルパー。
 import { COLOR_HEX } from '../lib/core.js';
 
+await initializeI18n();
+
 export async function call(type, payload = {}) {
   const res = await chrome.runtime.sendMessage({ type, ...payload });
-  if (!res) throw new Error('サービスワーカーから応答がありません');
-  if (!res.ok) throw new Error(res.error);
+  if (!res) throw new Error(uiText("サービスワーカーから応答がありません"));
+  if (!res.ok) throw new Error(translateText(res.error));
   return res.data;
 }
 
@@ -13,7 +16,8 @@ export function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v === undefined || v === null || v === false) continue;
-    if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
+    if (isLocalizedText(v)) setTranslatedAttribute(el, k, v);
+    else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v);
     else if (k === 'class') el.className = v;
     else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
     else if (k in el && typeof v !== 'string') el[k] = v;
@@ -21,7 +25,7 @@ export function h(tag, attrs = {}, ...children) {
   }
   for (const c of children.flat()) {
     if (c === null || c === undefined || c === false) continue;
-    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    el.append(c instanceof Node ? c : textNode(c));
   }
   return el;
 }
@@ -56,7 +60,7 @@ export function toast(msg, isError = false) {
     el = h('div', { id: 'toast' });
     document.body.append(el);
   }
-  el.textContent = msg;
+  setText(el, msg);
   el.className = isError ? 'show error' : 'show';
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => (el.className = ''), 2500);
@@ -70,8 +74,8 @@ export function confirmButton(label, confirmLabel, onConfirm, attrs = {}) {
     e.stopPropagation();
     if (!armed) {
       armed = true;
-      btn.textContent = confirmLabel;
-      setTimeout(() => { armed = false; btn.textContent = label; }, 3000);
+      setText(btn, confirmLabel);
+      setTimeout(() => { armed = false; setText(btn, label); }, 3000);
       return;
     }
     onConfirm();

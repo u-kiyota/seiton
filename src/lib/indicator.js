@@ -3,6 +3,7 @@
 // Chrome はメインフレームのナビゲーションでタブ単位の値を消すことがあるため、タブの作成・遷移のたびに再適用する。
 // 状態は書き換えない（読み取りのみ）ので serialize() の外から呼んでよい。
 import { indicatorLabel } from './core.js';
+import { t } from './i18n.js';
 import { loadState, getBindings } from './store.js';
 import { drawIndicatorIcon } from './draw.js';
 
@@ -24,7 +25,7 @@ function defaultIconPath() {
 }
 
 function defaultTitle() {
-  return chrome.runtime.getManifest().action?.default_title || 'seiton';
+  return t('seiton (クイックパレット)');
 }
 
 /** label のアイコン画像（16 / 32）。描けない環境では null（呼び出し側は既定アイコンにする）。成功時だけキャッシュする */

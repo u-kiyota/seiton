@@ -1,3 +1,4 @@
+import { uiText, setText, setTranslatedAttribute, replaceChildren, languageOnlyChange, getLanguage } from './i18n.js';
 // クイックパレット: 現在のワークスペースのタブ / 接続フォルダのブックマーク / ワークスペース切替
 import { call, h, faviconUrl, wsIcon, attempt, toast } from './api.js';
 import { matchesQuery, normalizeUrlForMatch, resolveSwitchMode } from '../lib/core.js';
@@ -22,7 +23,7 @@ function item({ icon, title, sub, cls = '', run, remove }) {
     h('span', { class: 'title' }, title),
     sub ? h('span', { class: 'sub' }, sub) : null,
     remove ? h('button', {
-      class: 'icon close', title: 'タブを閉じる',
+      class: 'icon close', title: uiText("タブを閉じる"),
       onclick: (e) => { e.stopPropagation(); remove(); },
     }, '×') : null,
   );
@@ -70,12 +71,12 @@ function render() {
 
   // 開いているタブ（ワークスペース検索モードでは出さない）
   const tabList = wsOnly ? [] : tabs.filter((t) => matchesQuery(`${t.title} ${t.url}`, q));
-  if (!wsOnly) out.push(h('div', { class: 'section' }, `開いているタブ（${tabList.length}）`));
+  if (!wsOnly) out.push(h('div', { class: 'section' }, uiText("開いているタブ（{p0}）", {p0: (tabList.length)})));
   for (const t of tabList) {
     push(item({
       icon: h('img', { class: 'fav', src: faviconUrl(t.url) }),
       title: (t.pinned ? '📌 ' : '') + (t.title || t.url),
-      sub: t.discarded ? 'メモリ解放済み' : hostOf(t.url),
+      sub: t.discarded ? uiText("メモリ解放済み") : hostOf(t.url),
       cls: t.discarded ? 'discarded' : '',
       run: async () => { await chrome.tabs.update(t.id, { active: true }); window.close(); },
       remove: async () => {
@@ -89,7 +90,7 @@ function render() {
   // よく開くタブ置き場（issue #34）。ワークスペース検索モードと、置き場が空のときは出さない
   if (!wsOnly && ws && palette.shelf?.length) {
     const shelf = palette.shelf.filter((s) => matchesQuery(`${s.title} ${s.url}`, q));
-    out.push(h('div', { class: 'section' }, `よく開くタブ（${shelf.length}）`));
+    out.push(h('div', { class: 'section' }, uiText("よく開くタブ（{p0}）", {p0: (shelf.length)})));
     for (const s of shelf) {
       push(item({
         icon: h('img', { class: 'fav', src: faviconUrl(s.url) }),
@@ -104,13 +105,13 @@ function render() {
   if (wsOnly) {
     // ワークスペース検索モード: ブックマークは出さない
   } else if (!ws) {
-    out.push(h('div', { class: 'section' }, 'ブックマーク'), h('div', { class: 'empty' }, 'このウィンドウはワークスペース未割り当てです'));
+    out.push(h('div', { class: 'section' }, uiText("ブックマーク")), h('div', { class: 'empty' }, uiText("このウィンドウはワークスペース未割り当てです")));
   } else if (!bookmarks) {
-    out.push(h('div', { class: 'section' }, 'ブックマーク'), h('div', { class: 'empty' }, 'ブックマークフォルダが未接続です（管理パネルの ✎ から接続）'));
+    out.push(h('div', { class: 'section' }, uiText("ブックマーク")), h('div', { class: 'empty' }, uiText("ブックマークフォルダが未接続です（管理パネルの ✎ から接続）")));
   } else {
     const bms = bookmarks.items.filter((b) => matchesQuery(`${b.title} ${b.url} ${b.path}`, q));
-    out.push(h('div', { class: 'section' }, `ブックマーク: ${bookmarks.title}（${bms.length}）`));
-    if (!bookmarks.items.length) out.push(h('div', { class: 'empty' }, 'まだブックマークがありません（★ 保存 / Ctrl+D で追加）'));
+    out.push(h('div', { class: 'section' }, uiText("ブックマーク: {p0}（{p1}）", {p0: (bookmarks.title), p1: (bms.length)})));
+    if (!bookmarks.items.length) out.push(h('div', { class: 'empty' }, uiText("まだブックマークがありません（★ 保存 / Ctrl+D で追加）")));
     for (const b of bms) {
       push(item({
         icon: h('img', { class: 'fav', src: faviconUrl(b.url) }),
@@ -127,17 +128,17 @@ function render() {
     .map((id) => ({ w: state.workspaces[id], s: state.sessions[state.workspaces[id].sessionId] }))
     .filter(({ w, s }) => (wsOnly || w.id !== workspaceId) && matchesQuery(`${w.name} ${s?.name || ''} ${w.icon || ''}`, q));
   out.push(h('div', { class: 'section' },
-    wsOnly ? `ワークスペース（${wsList.length}）` : `ワークスペースを切り替え（${wsList.length}）`,
+    wsOnly ? uiText("ワークスペース（{p0}）", {p0: (wsList.length)}) : uiText("ワークスペースを切り替え（{p0}）", {p0: (wsList.length)}),
     wsOnly ? null : h('span', { class: 'grow' }),
-    wsOnly ? null : h('span', { class: 'muted', style: { fontWeight: 'normal' } }, '「>」でワークスペースのみ検索'),
+    wsOnly ? null : h('span', { class: 'muted', style: { fontWeight: 'normal' } }, uiText("「>」でワークスペースのみ検索")),
   ));
-  if (wsOnly && !wsList.length) out.push(h('div', { class: 'empty' }, state.workspaceOrder.length ? '一致するワークスペースがありません' : 'ワークスペースがありません（☰ の管理パネルから作成）'));
+  if (wsOnly && !wsList.length) out.push(h('div', { class: 'empty' }, state.workspaceOrder.length ? uiText("一致するワークスペースがありません") : uiText("ワークスペースがありません（☰ の管理パネルから作成）")));
   for (const { w, s } of wsList) {
     const here = w.id === workspaceId;
     push(item({
       icon: wsIcon(w),
       title: w.name,
-      sub: here ? 'このウィンドウ' : `${s?.name || ''} · ${w.tabs.length} タブ`,
+      sub: here ? uiText("このウィンドウ") : uiText("{p0} · {p1} タブ", {p0: (s?.name || ''), p1: (w.tabs.length)}),
       cls: here ? 'here' : '',
       run: (_shift, mode) => attempt(async () => {
         // 既定の切替方法（設定）に Shift（新しいウィンドウとの入れ替え）/ Ctrl（休止との入れ替え）を加味した mode で開く（issue #35 / #37）
@@ -148,7 +149,7 @@ function render() {
     }));
   }
 
-  $('results').replaceChildren(...out);
+  replaceChildren($('results'), ...out);
   select(raw.trim() ? 0 : Math.max(0, items.findIndex((it, i) => tabList[i]?.active)));
 }
 
@@ -178,7 +179,7 @@ document.addEventListener('keydown', (e) => {
 
 $('saveTab').addEventListener('click', () => attempt(async () => {
   const res = await call('saveCurrentTab', { windowId });
-  toast(res.duplicated ? '既に保存済みです' : 'ブックマークに保存しました');
+  toast(res.duplicated ? uiText("既に保存済みです") : uiText("ブックマークに保存しました"));
   palette = await call('getPalette', { windowId });
   render();
 }));
@@ -193,8 +194,8 @@ $('openPanel').addEventListener('click', async () => {
   palette = await attempt(() => call('getPalette', { windowId }));
   if (!palette) return;
   const ws = palette.state.workspaces[palette.workspaceId];
-  $('wsName').textContent = ws ? ws.name : '未割り当てのウィンドウ';
-  $('wsDot').replaceChildren(...(ws ? [wsIcon(ws)] : []));
+  setText($('wsName'), ws ? ws.name : uiText("未割り当てのウィンドウ"));
+  replaceChildren($('wsDot'), ...(ws ? [wsIcon(ws)] : []));
   $('saveTab').disabled = !ws?.bookmarkFolderId;
   render();
 })();

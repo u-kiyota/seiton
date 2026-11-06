@@ -24,10 +24,15 @@
     "alarms",
     "favicon"
   ],
-  "optional_permissions": ["cookies", "history"],
-  "optional_host_permissions": ["<all_urls>"],
+  "optional_permissions": [
+    "cookies",
+    "history"
+  ],
+  "optional_host_permissions": [
+    "<all_urls>"
+  ],
   "action": {
-    "default_title": "seiton (クイックパレット)",
+    "default_title": "__MSG_actionTitle__",
     "default_popup": "src/ui/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
@@ -39,23 +44,31 @@
   "incognito": "not_allowed",
   "commands": {
     "_execute_action": {
-      "suggested_key": { "default": "Alt+K" },
-      "description": "クイックパレット（現在のタブ / ブックマーク / ワークスペース切替）を開く"
+      "suggested_key": {
+        "default": "Alt+K"
+      },
+      "description": "__MSG_commandPalette__"
     },
     "open-side-panel": {
-      "suggested_key": { "default": "Alt+Shift+K" },
-      "description": "ワークスペース管理パネルを開く / 閉じる（一時的なウィンドウ）"
+      "suggested_key": {
+        "default": "Alt+Shift+K"
+      },
+      "description": "__MSG_commandManager__"
     },
     "save-bookmark": {
-      "suggested_key": { "default": "Alt+Shift+D" },
-      "description": "現在のタブをワークスペースのブックマークフォルダに保存"
+      "suggested_key": {
+        "default": "Alt+Shift+D"
+      },
+      "description": "__MSG_commandSaveBookmark__"
     },
     "next-workspace": {
-      "suggested_key": { "default": "Alt+Shift+N" },
-      "description": "同じセッション内の次のワークスペースへ切り替え"
+      "suggested_key": {
+        "default": "Alt+Shift+N"
+      },
+      "description": "__MSG_commandNextWorkspace__"
     },
     "prev-workspace": {
-      "description": "同じセッション内の前のワークスペースへ切り替え"
+      "description": "__MSG_commandPrevWorkspace__"
     }
   }
 }

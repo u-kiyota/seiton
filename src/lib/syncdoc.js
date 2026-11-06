@@ -17,6 +17,7 @@
 //   folder: null | { path: [フォルダ名, ...], managed }（ブックマークの ID はブラウザごとに違うので、パスで持つ）
 //   tabs: [{ u, t, p?, g?, a? }]（url / title / pinned / groupKey / active）
 //   shelf: [{ u, t? }]（よく開くタブ置き場。issue #34。タブと同じ縮約形で、容量超過でも省かない）
+import { t } from './i18n.js';
 
 export const SYNC_DOC_VERSION = 1;
 /** chrome.storage.sync の制約（実行時に chrome.storage.sync.QUOTA_BYTES などがあればそちらを使う） */
@@ -394,7 +395,7 @@ export function chunkSyncBlob(id, blob, { perItem = SYNC_QUOTA_BYTES_PER_ITEM } 
   const room = (n) => perItem - utf8Bytes(wsChunkKey(id, n)) - 2 - 8;
   const first = room(0);
   const rest = room(1);
-  if (first <= 16 || rest <= 16) throw new Error('項目の上限が小さすぎます');
+  if (first <= 16 || rest <= 16) throw new Error(t('項目の上限が小さすぎます'));
   const parts = [];
   // 先頭はヘッダー分を差し引いて切る
   let i = Math.min(s.length, first - 6);

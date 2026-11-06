@@ -6,6 +6,7 @@
 //   - 接続フォルダをパス ⇔ ID で引き直す（ブックマークの ID はブラウザごとに違う）
 //   - デバウンスとまとめ書き（書き込み回数の上限 120 回 / 分・1,800 回 / 時に収める）
 // runSync は store.js の serialize の中で動かす（state の read-modify-write を他の処理と直列にする）
+import { t } from './i18n.js';
 import { normalizeState } from './core.js';
 import { loadState, saveState, serialize, setBinding, windowForWorkspace } from './store.js';
 import {
@@ -77,11 +78,11 @@ export async function encodeWorkspaceBlob(entry) {
 }
 
 export async function decodeWorkspaceBlob(blob) {
-  if (typeof blob !== 'string' || blob.length < 2) throw new Error('blob が空です');
+  if (typeof blob !== 'string' || blob.length < 2) throw new Error(t('blob が空です'));
   const fmt = blob[0];
   let bytes = fromBase64(blob.slice(1));
   if (fmt === 'z') bytes = await gunzip(bytes);
-  else if (fmt !== 'j') throw new Error(`未知の形式: ${fmt}`);
+  else if (fmt !== 'j') throw new Error(t('未知の形式: {format}', { format: fmt }));
   return JSON.parse(dec.decode(bytes));
 }
 
@@ -96,7 +97,7 @@ export async function readRemote() {
   const meta = items[SYNC_META_KEY];
   const unreadable = [];
   if (!meta || typeof meta !== 'object') return { items, doc: null, unreadable };
-  if ((meta.v || 0) > SYNC_DOC_VERSION) throw new Error(`同期データが新しい版（v${meta.v}）です。seiton を更新してください`);
+  if ((meta.v || 0) > SYNC_DOC_VERSION) throw new Error(t('同期データが新しい版（v{version}）です。seiton を更新してください', { version: meta.v }));
   const workspaces = {};
   for (const id of Object.keys(wsChunkCounts(items))) {
     const blob = joinSyncChunks(id, items);
@@ -213,12 +214,12 @@ export async function fitSyncDoc(doc, lim = syncLimits()) {
   let items = build();
   const metaBytes = syncItemBytes(SYNC_META_KEY, items[SYNC_META_KEY]);
   if (metaBytes > lim.perItem) {
-    throw new Error(`設定・セッション・並び順が 1 項目の上限（${lim.perItem.toLocaleString()} バイト）を超えています（${metaBytes.toLocaleString()} バイト）。ワークスペースかセッションを減らしてください`);
+    throw new Error(t('設定・セッション・並び順が 1 項目の上限（{limit} バイト）を超えています（{bytes} バイト）。ワークスペースかセッションを減らしてください', { limit: lim.perItem.toLocaleString(), bytes: metaBytes.toLocaleString() }));
   }
   let m = measureSyncItems(items);
   while (m.bytes > lim.quota - SYNC_RESERVE_BYTES || m.count > lim.maxItems) {
     const id = pickTabsToOmit(d, omitted);
-    if (!id) throw new Error(`同期ストレージの容量（${lim.quota.toLocaleString()} バイト）に収まりません（${m.bytes.toLocaleString()} バイト）`);
+    if (!id) throw new Error(t('同期ストレージの容量（{limit} バイト）に収まりません（{bytes} バイト）', { limit: lim.quota.toLocaleString(), bytes: m.bytes.toLocaleString() }));
     d.workspaces[id] = omitTabs(d.workspaces[id]);
     omitted.add(id);
     blobs[id] = await encodeWorkspaceBlob(d.workspaces[id]);
@@ -245,7 +246,7 @@ export async function runSync({ force = false } = {}) {
   const state = await loadState();
   if (!state.settings.syncEnabled && !force) return getSyncStatus();
   if (!syncAvailable()) {
-    await writeStatus({ error: 'このブラウザでは chrome.storage.sync が使えません', applied: false });
+    await writeStatus({ error: t('このブラウザでは chrome.storage.sync が使えません'), applied: false });
     return getSyncStatus();
   }
   try {

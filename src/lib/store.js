@@ -1,6 +1,7 @@
 // 状態の永続化。書き込みはサービスワーカーだけが行い、すべて直列キューを通す。
 // サービスワーカーはいつ停止してもよいように、メモリ上のキャッシュは持たない。
 import { normalizeState } from './core.js';
+import { setLanguage } from './i18n.js';
 
 const STATE_KEY = 'state';
 const BINDINGS_KEY = 'bindings'; // storage.session: { [windowId]: workspaceId }
@@ -16,10 +17,12 @@ export function serialize(fn) {
 
 export async function loadState() {
   const { [STATE_KEY]: raw } = await chrome.storage.local.get(STATE_KEY);
+  setLanguage(raw?.settings?.language);
   return normalizeState(raw);
 }
 
 export async function saveState(state) {
+  setLanguage(state.settings?.language);
   await chrome.storage.local.set({ [STATE_KEY]: state });
 }
 

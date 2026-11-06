@@ -1,8 +1,11 @@
 // chrome API に依存しない純粋ロジック。node --test でテストできるようにここへ集約する。
+import { t, normalizeLanguage, getLanguage, translateText, resolveLanguage } from './i18n.js';
 
 export const STATE_VERSION = 2;
 
 export const DEFAULT_SETTINGS = {
+  // auto はブラウザの表示言語に従う。既存データではこの値を補う。
+  language: 'auto',
   // 復元時、アクティブ以外のタブを即座に破棄（discard）して読み込みを遅延させる
   lazyRestore: true,
   // N 分以上アクティブになっていないタブを自動 discard（0 = 無効。基本は Chrome のメモリセーバーに任せる）
@@ -58,11 +61,11 @@ export const DEFAULT_SESSION_ID = 'sess_default';
  *   ワークスペース側が sessionId で参照する（ワークスペース N : セッション 1）。セッションはワークスペースを所有しない
  * - workspaceOrder: 全ワークスペースの表示順（セッションをまたいだ 1 本のリスト）
  */
-export function defaultState() {
+export function defaultState(language = getLanguage()) {
   return {
     version: STATE_VERSION,
     sessions: {
-      [DEFAULT_SESSION_ID]: { id: DEFAULT_SESSION_ID, name: 'デフォルト', createdAt: Date.now() },
+      [DEFAULT_SESSION_ID]: { id: DEFAULT_SESSION_ID, name: translateText('デフォルト', language), createdAt: Date.now() },
     },
     sessionOrder: [DEFAULT_SESSION_ID],
     workspaceOrder: [],
@@ -78,13 +81,14 @@ export function defaultState() {
 
 /** 保存データの欠損を補う（古いバージョンや手で壊れたデータへの防御）。v1（セッションが workspaceIds を持つ形）からの移行も行う */
 export function normalizeState(raw) {
-  const base = defaultState();
+  const language = resolveLanguage(raw?.settings?.language);
+  const base = defaultState(language);
   if (!raw || typeof raw !== 'object') return base;
   const rawSessions = raw.sessions && typeof raw.sessions === 'object' && Object.keys(raw.sessions).length ? raw.sessions : base.sessions;
   const sessions = {};
   for (const [id, s] of Object.entries(rawSessions)) {
     if (!s || typeof s !== 'object') continue;
-    sessions[id] = { id, name: (typeof s.name === 'string' && s.name.trim()) || 'セッション', createdAt: s.createdAt || Date.now() };
+    sessions[id] = { id, name: (typeof s.name === 'string' && s.name.trim()) || translateText('セッション', language), createdAt: s.createdAt || Date.now() };
     if (Number.isFinite(s.updatedAt)) sessions[id].updatedAt = s.updatedAt;
   }
   if (!Object.keys(sessions).length) sessions[DEFAULT_SESSION_ID] = base.sessions[DEFAULT_SESSION_ID];
@@ -101,6 +105,7 @@ export function normalizeState(raw) {
   delete state.settings.cookieIsolation;
   state.settings.syncEnabled = state.settings.syncEnabled === true;
   state.settings.switchMode = normalizeSwitchMode(state.settings.switchMode);
+  state.settings.language = normalizeLanguage(state.settings.language);
   state.settingsAt = Number.isFinite(raw.settingsAt) ? raw.settingsAt : 0;
   state.orderAt = Number.isFinite(raw.orderAt) ? raw.orderAt : 0;
   state.sessionOrder = (Array.isArray(raw.sessionOrder) ? raw.sessionOrder : []).filter((id) => sessions[id]);
@@ -474,7 +479,7 @@ export function firstGrapheme(str) {
  * text は絵文字アイコン（emoji: true）、無ければ名前の先頭 1 文字（名前が空なら '?'）
  */
 export function indicatorLabel(ws, sessionName) {
-  if (!ws) return { text: '', emoji: false, color: null, title: UNASSIGNED_INDICATOR_TITLE };
+  if (!ws) return { text: '', emoji: false, color: null, title: t(UNASSIGNED_INDICATOR_TITLE) };
   const name = typeof ws.name === 'string' ? ws.name.trim() : '';
   const icon = normalizeIcon(ws.icon);
   const session = typeof sessionName === 'string' ? sessionName.trim() : '';
@@ -482,7 +487,7 @@ export function indicatorLabel(ws, sessionName) {
     text: icon || firstGrapheme(name) || '?',
     emoji: !!icon,
     color: COLOR_HEX[ws.color] || COLOR_HEX.grey,
-    title: `${INDICATOR_TITLE_PREFIX}${name || '(名前なし)'}${session ? `（${session}）` : ''}`,
+    title: `${INDICATOR_TITLE_PREFIX}${name || t('(名前なし)')}${session ? (getLanguage() === 'ja' ? `（${session}）` : ` (${session})`) : ''}`,
   };
 }
 
@@ -831,8 +836,8 @@ export function closedTabEntry(tab, ws, now = Date.now()) {
 export function closedDayLabel(ts, now = Date.now()) {
   const day = (t) => { const x = new Date(t); return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); };
   const diff = Math.round((day(now) - day(ts)) / DAY_MS);
-  if (diff === 0) return '今日';
-  if (diff === 1) return '昨日';
+  if (diff === 0) return t('今日');
+  if (diff === 1) return t('昨日');
   const d = new Date(ts);
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
@@ -1089,11 +1094,11 @@ export function takeSavedTabs(tabs, picks) {
 
 /** 移動の結果のトースト文言。mode: window（開いているウィンドウへ）/ parked（休止グループへ）/ saved（保存タブに加えて閉じた） */
 export function moveTabsMessage({ moved, skipped = 0, mode, workspaceName }) {
-  const where = mode === 'window' ? 'のウィンドウへ移しました'
-    : mode === 'parked' ? 'の休止グループへ移しました'
-      : 'の保存タブに加えました';
-  const msg = `${moved} 個のタブを「${workspaceName}」${where}`;
-  return skipped ? `${msg}（${skipped} 個は対象外）` : msg;
+  const key = mode === 'window' ? '{count} 個のタブを「{name}」のウィンドウへ移しました'
+    : mode === 'parked' ? '{count} 個のタブを「{name}」の休止グループへ移しました'
+      : '{count} 個のタブを「{name}」の保存タブに加えました';
+  const msg = t(key, { count: moved, name: workspaceName });
+  return skipped ? t('{message}（{count} 個は対象外）', { message: msg, count: skipped }) : msg;
 }
 
 // ---- よく開くタブ置き場（issue #34）: ブックマークするほどではないが、よく開くページをワークスペースごとに置いておく ----

@@ -3,6 +3,7 @@
 // 暗号文は chrome.storage.local に Base64 で置く。鍵は JS から値を取り出せず、鍵と暗号文は別の場所にある。
 // この拡張を削除すると両方とも消える。サービスワーカーだけが使う（UI は background へのメッセージ経由）。
 // テストでは setKeyStore() で鍵の置き場をメモリに差し替える（Node に IndexedDB は無い）
+import { t } from './i18n.js';
 
 const DB_NAME = 'seiton-vault';
 const DB_VERSION = 1;
@@ -17,7 +18,7 @@ function openDb() {
     req.onupgradeneeded = () => { req.result.createObjectStore(STORE); };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
-    req.onblocked = () => reject(new Error('IndexedDB がブロックされています'));
+    req.onblocked = () => reject(new Error(t('IndexedDB がブロックされています')));
   });
 }
 
@@ -33,7 +34,7 @@ async function withStore(mode, fn) {
       req.onerror = () => reject(req.error);
       tx.oncomplete = () => resolve(result);
       tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error || new Error('IndexedDB のトランザクションが中断されました'));
+      tx.onabort = () => reject(tx.error || new Error(t('IndexedDB のトランザクションが中断されました')));
     });
   } finally {
     db.close();
@@ -110,7 +111,7 @@ export function isEncrypted(blob) {
 
 /** encryptJson の出力を元の値に戻す。鍵が違う・壊れている場合は例外 */
 export async function decryptJson(blob) {
-  if (!isEncrypted(blob)) throw new Error('暗号化された形式ではありません');
+  if (!isEncrypted(blob)) throw new Error(t('暗号化された形式ではありません'));
   const key = await getVaultKey();
   const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromBase64(blob.iv) }, key, fromBase64(blob.data));
   return JSON.parse(new TextDecoder().decode(plain));

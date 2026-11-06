@@ -7,6 +7,7 @@
 // - ブラウザ再起動では storage.session もグループ ID も消えるので、復元されたグループのタイトル「⏸ …」から対応付け直す
 //   （元のグループ・固定の情報は失われ、平らなグループとして再開する）。
 // - ここの関数は serialize() の中から呼ばれる前提（内部で serialize を呼ばない）。
+import { t } from './i18n.js';
 import { planPark, parkedGroupProps, workspaceIdForParkedTitle, COLORS } from './core.js';
 import { cancelDiscard } from './memory.js';
 
@@ -296,7 +297,7 @@ export async function recoverParkedGroups(windows, state, taken = new Set()) {
  */
 export async function addToParkedGroup(groupId, tabs) {
   const group = await getGroup(groupId);
-  if (!group) throw new Error('休止グループが見つかりません');
+  if (!group) throw new Error(t('休止グループが見つかりません'));
   const ids = tabs.map((t) => t.id);
   const pinned = tabs.filter((t) => t.pinned).map((t) => t.id);
   for (const id of pinned) await chrome.tabs.update(id, { pinned: false }).catch(() => {});

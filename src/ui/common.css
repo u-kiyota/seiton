@@ -106,3 +106,6 @@ dialog::backdrop { background: rgba(0, 0, 0, .45); }
 dialog.consent { width: min(600px, 92vw); }
 dialog.consent p { margin: 0; }
 .consent-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+
+/* 保存済みの言語を読み込む間、日本語の初期表示を出さない。 */
+html[data-i18n-pending] { visibility: hidden; }

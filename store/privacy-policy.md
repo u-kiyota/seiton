@@ -1,38 +1,44 @@
-# seiton プライバシーポリシー
+# seiton Privacy Policy
 
-制定日: 2026年○月○日
+[日本語](privacy-policy.ja.md)
 
-本ポリシーは、Chrome 拡張機能「seiton」（以下「本拡張機能」）における利用者情報の取り扱いを定めるものです。
+Effective date: not yet specified (the original policy's date is a placeholder).
 
-## 1. 取り扱う情報
-本拡張機能は、機能の提供のために次の情報を取り扱います。
+This policy describes how the seiton Chrome extension handles user information.
 
-| 情報 | 用途 | 保存場所 |
+## 1. Information handled
+
+| Information | Purpose | Storage |
 |---|---|---|
-| タブの URL・タイトル・固定状態・タブグループ・最終アクセス時刻 | ワークスペースの保存・復元、使っていないタブの自動クローズ | お使いのブラウザ内（chrome.storage.local） |
-| ブックマーク（接続したフォルダの情報） | ワークスペースとブックマークフォルダの接続、検索。利用者の操作に応じてフォルダの作成やブックマークの移動を行います | ブラウザ内（Chrome のブックマーク） |
-| 閲覧履歴 ※利用者が「閲覧履歴の検索」の権限を許可した場合のみ | 管理パネルでの検索（検索時に読み取るのみで保存しません） | 保存しません |
-| ワークスペース・セッションの名前、設定 | 機能の提供 | ブラウザ内 |
-| 自動クローズで閉じたタブの履歴（最大 500 件） | 閉じたタブを開き直すため | ブラウザ内 |
-| Cookie（ログイン状態）※セッション機能を有効にした場合のみ | セッションごとにログイン状態を切り替えるため | ブラウザ内（AES-GCM で暗号化） |
+| Tab URLs, titles, pinned state, groups, last-access timestamps | Save/restore workspaces; auto-close unused tabs | Browser (chrome.storage.local) |
+| Linked bookmark-folder information and bookmarks | Link folders, search, create folders or move bookmarks in response to user actions | Browser bookmarks |
+| Browsing history, only with optional permission | Panel search; read only at search time | Not stored by the extension |
+| Workspace/session names and settings | Provide features | Browser |
+| Auto-closed tab history (up to 500 entries) | Reopen tabs | Browser |
+| Cookies, only when session functionality is enabled | Switch login state | Browser, encrypted with AES-GCM |
 
-## 2. 外部への送信
-- 本拡張機能は、上記の情報を開発者または第三者のサーバーへ送信しません。
-- 利用者が「同期」を ON にした場合に限り、ワークスペース・セッション・設定（タブは URL とタイトルのみ）が Google の chrome.storage.sync に保存され、利用者自身の Google アカウントでログインしている他のブラウザと同期されます。この保存は Google のサービスによって行われ、開発者がその内容にアクセスすることはありません。Cookie・閉じたタブの履歴・閲覧履歴は同期しません。
-- 広告、アクセス解析、トラッキングは行いません。
+## 2. Transmission
 
-## 3. 第三者提供・販売
-開発者は、利用者の情報を販売せず、第三者に提供しません。また、本拡張機能の目的と関係のない目的や、信用力の判断・融資の目的で使用しません。
+- The extension does not send this information to developer or third-party servers.
+- Only when you enable sync, workspace/session information and settings are stored through the browser's chrome.storage.sync service and synchronized with your other browsers signed into the same account. The developer cannot access this storage. Cookies, closed-tab history, and browsing history are not synchronized.
+- No ads, analytics, or tracking.
 
-## 4. 情報の削除
-- 本拡張機能をアンインストールすると、ブラウザ内（chrome.storage.local）に保存された情報は削除されます。同期データは、アンインストール前に設定画面の「同期データを削除」で削除してください。
-- 退避した Cookie、閉じたタブの履歴、同期データは、設定画面からいつでも削除できます。
+## 3. Sharing and sale
 
-## 5. 安全管理
-保存する情報はブラウザの拡張機能用ストレージにのみ保存し、外部との通信は行いません。退避した Cookie は AES-GCM（256 ビット）で暗号化して保存し、暗号鍵はブラウザの外に取り出せない形で保持します。
+The developer does not sell or provide information to third parties, use it for purposes unrelated to the extension, or use it to determine creditworthiness or for lending.
 
-## 6. 本ポリシーの変更
-本ポリシーを変更する場合は、本ページにて告知します。
+## 4. Deletion
 
-## 7. お問い合わせ
-本拡張機能に関するお問い合わせは、GitHub リポジトリ（https://github.com/u-kiyota/seiton ）の Issues からお願いします。
+Uninstalling removes local extension storage. Before uninstalling, use **Delete sync data** in settings to remove sync data. Saved cookies, closed-tab history, and sync data can also be deleted from settings at any time.
+
+## 5. Security
+
+Information is stored in browser extension storage; the extension makes no external network requests. Saved cookies are encrypted with AES-GCM (256 bit). The encryption key is stored as a non-extractable browser key.
+
+## 6. Changes
+
+Policy changes will be announced on this page.
+
+## 7. Contact
+
+Open an issue in the [GitHub repository](https://github.com/u-kiyota/seiton/issues).

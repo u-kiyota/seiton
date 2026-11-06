@@ -1,191 +1,143 @@
-# seiton の仕様
+# seiton specification
 
-[README](../README.md) に書ききれない仕組みと細かい仕様。機能の見出しは README の「できること」に対応する。
+[README](../README.md) · [日本語](spec.ja.md)
 
-## 要件と実装
+Implementation details and limitations beyond the README.
 
-| 要件 | 実装 |
-| --- | --- |
-| ワークスペースごとにタブを管理し、別ワークスペースのタブは表示しない | ウィンドウ単位で「今表示しているワークスペース」を 1 つ持つ。切替時は現在のタブを保存して閉じ、切替先のタブを開き直す（Chrome にはタブを隠す API が無いため）。入力途中のページを失いたくないときは「休止して切替」（Ctrl+Enter / 行の ⏸）で、今のタブを閉じずに折りたたんだタブグループ「⏸ 名前」として同じウィンドウに残せる（下記「休止」参照） |
-| 状態を保存し、再起動しても復元 | タブ構成（URL / タイトル / 固定 / タブグループ / アクティブタブ）を変更のたびに `chrome.storage.local` に保存。起動時に URL の重なりでウィンドウとワークスペースを対応付け直す |
-| セッション管理（ワークスペース N : セッション 1） | セッション = ワークスペースが「どのアカウント / ログイン状態で使うか」を表すもの（例:「AWS 本番」「AWS 開発」「個人」）。各ワークスペースが使うセッションを 1 つ選ぶ。ワークスペース一覧はセッションで分かれず 1 本のリスト。セッション管理画面の「全て開く」で、そのセッションを使う全ワークスペースを別ウィンドウで一括オープン。2 つ目のセッションを追加するときに権限を許可すると、セッションごとに Cookie（ログイン状態）が分かれる（下記「セッションごとの Cookie の分離」参照） |
-| ブックマークのディレクトリと接続 | ワークスペースごとに任意のブックマークフォルダを接続（新規作成 or 既存フォルダを選択） |
-| ブックマーク保存時はそのディレクトリへ | `Ctrl+D` / ☆ で作ったブックマークを自動で接続フォルダへ移動。`Alt+Shift+D` で直接保存も可能 |
-| ショートカットでフォルダのブックマーク一覧と開いているタブ一覧 | `Alt+K` でクイックパレット（開いているタブ / 接続フォルダのブックマーク / ワークスペース切替 をインクリメンタル検索。`>` または Tab でワークスペースのみの検索モード） |
-| メモリ管理 | 下記「メモリ管理の方針」参照 |
-| 長期間開いているタブの自動クローズ | 最後に使ってから一定の期間（既定 7 日。分 / 時間 / 日で指定、最短 15 分）経ったタブを自動で閉じる。既定 OFF。設定画面でオン / オフと期間、管理パネルの ✎ でワークスペースごとに上書き。閉じたくない URL は除外リストに登録（設定画面で編集、管理パネルの開いているタブの 🛡 から追加）。下記「タブの自動クローズ」参照 |
-| タブを別のワークスペースへ移す | 管理パネルのタブ一覧でチェックボックスで複数のタブを選び、移動先のワークスペースを選んで「移動」。移動先が開いていればそのウィンドウへ移し（読み込み直さない）、休止中なら休止グループに加え、開いていなければ保存タブに加えて元のタブを閉じる |
-| 良く開くタブ置き場 | ブックマークするほどではないが、よく開くページをワークスペースごとに置いておく「よく開くタブ」。管理パネルのブックマークの下にあり、開いているタブ / 保存済みタブ / ブックマークの行をドラッグ＆ドロップで登録、× で外す、ドラッグで並び替え。行を開くとそのページを開く（既に開いていればそのタブへ）。検索ボックスとクイックパレットにも出る。同期・エクスポートの対象 |
-| 別のブラウザでも作業を再開（同期） | 設定・管理画面の「同期」を ON にすると、`chrome.storage.sync`（Chrome / Edge のアカウントで同期される拡張用ストレージ）にワークスペース・セッション・設定を保存し、他のブラウザと合わせる。自前のアカウント・サーバーは持たない。容量 100 KB に収めるためタブは URL とタイトルだけに縮めて圧縮し、収まらないときは古いワークスペースからタブだけを省く。下記「同期」参照 |
+## Workspaces
 
-> **「セッション」について**: セッションはワークスペースを束ねる親ではなく、ワークスペース側が「このワークスペースはどのセッションを使う」と参照する関係です（AWS などのマルチアカウントをワークスペースごとに使い分ける用途）。セッションごとに Cookie（ログイン状態）が分かれ、Chrome のプロファイルを切り替えるように使えます（2 つ目のセッションを追加するときに権限を求める）。
+Each browser window has at most one active workspace. A workspace can be open in only one window; selecting an already-open workspace focuses that window. Normal switching snapshots tabs, closes them, and opens the target workspace's saved URLs. Chrome cannot hide tabs.
 
-## セッションごとの Cookie の分離
+Snapshots include URL, title, pinned state, tab groups, active tab, and last-access time. They are saved to chrome.storage.local after changes. Each workspace references one session; sessions do not partition the workspace list. Session management can open all workspaces referencing a session in separate windows.
 
-Chrome にはタブやウィンドウ単位で Cookie を分ける API が無いので、「今 Chrome に入っている Cookie は 1 つのセッションのもの」とし、別のセッションを使うワークスペースに切り替えるときに Cookie を入れ替える方式（Chrome のプロファイル切替に近い）。
+Switching an unassigned window first saves its tabs as an unsorted workspace. Deleting a workspace leaves its bookmark folder and open tabs intact; the window becomes unassigned. Deleting a linked bookmark folder removes the link. Incognito windows are excluded.
 
-- **権限**: ON / OFF の設定は無く、権限があれば常に分ける（セッションを分けるのに Cookie が分かれない使い方は想定しない）。設定・管理画面の「セッション」で 2 つ目以降のセッションを追加するときに、任意権限（`cookies` と `<all_urls>`）を `chrome.permissions.request` で要求し、その前に拡張自身の同意ダイアログ（何をするか・どこに保存するか・どう消せるか。`manage.js` の `cookieConsentDialog`）を出し、「同意して権限を許可」のときだけ Chrome が「すべてのサイトのデータの読み取りと変更」の確認を出す。同意されない・拒否されたらセッションを追加しない。許可された時点で「今 Chrome に入っている Cookie」はそのウィンドウのワークスペースのセッション（無ければ最後に使ったワークスペースのセッション）のものとして扱い（`cookieSessionId`。既に決まっていれば変えない）、新しいセッションは退避した Cookie が無い＝未ログインから始まる。権限が無いのにセッションが 2 つ以上ある（chrome://extensions で取り消した・旧版から更新した）ときは、設定・管理画面の「セッション」に「権限を許可する」を出し、管理パネルの ✎ にヒントを出す
-- **切替時の動き**（`switchWorkspace` / `openInNewWindow` / 「全て開く」）: 切替先ワークスペースのセッションが「今の Cookie のセッション」（`storage.local` の `cookieSessionId`）と違えば、(1) 今の Cookie を `chrome.cookies.getAll`（Partitioned 属性付きも含む）で読んで `cookieJars[今のセッション]` に保存（消す前に書き込みを終える）→ (2) すべて `chrome.cookies.remove` → (3) `cookieJars[切替先]` の Cookie を `chrome.cookies.set` で復元（期限切れは除く。hostOnly / session Cookie / sameSite / partitionKey を保つ）→ (4) `cookieSessionId` を切替先にする。同じウィンドウ内の切替では、前のセッションのページが Cookie を書き足して混ざらないよう、古いタブを先に閉じてから入れ替え、それから切替先のタブを開く（ウィンドウは空白タブで保つ）
-- **開いているワークスペースのセッションを変えたとき**（✎ での変更、「今開いているタブをこのワークスペースにする」で別セッションを選んだとき）: 今の Cookie をそのセッションのものに入れ替え、そのウィンドウのメモリを解放していないタブを読み込み直す（新しいログイン状態を反映する）
-- **セッションの削除**: 今の Cookie が消すセッションのものなら、移動先セッションの Cookie に入れ替えてから消す。消したセッションの退避 Cookie も消す
-- **退避した Cookie の削除**: 設定画面の「退避した Cookie を削除」（今 Chrome に入っている Cookie は消さない）
-- **制限**: Chrome 全体で同時に使えるセッションは 1 つ。切替は全ウィンドウに及び、別のセッションのワークスペースを開いたままのウィンドウは、次の読み込みから切替先のログイン状態になる（そのページが Cookie を書けば切替先のセッションに混ざる）。localStorage / IndexedDB などサイト側の他の保存領域は分けない。退避した Cookie は AES-GCM（256 bit）で暗号化して `storage.local` に保存する（`lib/vault.js`。鍵は IndexedDB `seiton-vault` に書き出せない CryptoKey として置き、暗号文は Base64。旧版の平文 jar は起動時・更新時の `encryptCookieJars` で置き換える。復号できない jar は「退避 Cookie なし」として扱い、切替は止めない）。鍵と暗号文はどちらもこの拡張の保存領域にあるので、同じ PC の他のソフトからの保護は Chrome の Cookie 自体（OS のキーチェーン）と同程度までは期待できない。エクスポート / インポートの対象外
+## Language
 
-## 同期
+Settings & management → Display & behavior → Language offers Automatic (browser language), English, and 日本語. Unsupported automatic languages fall back to English. Selection is saved immediately and reflected across extension screens. User-entered names and site-provided titles are not translated. Store metadata uses the browser's extension localization mechanism separately.
 
-自前のアカウント・ログイン・サーバーを持たず、Chrome / Edge のアカウントで同期される拡張用ストレージ `chrome.storage.sync` を使う。ブラウザにログインし「拡張機能」の同期が ON なら他の端末へ届く（ログインしていない間はローカルと同じ扱いで、ログインすると同期される）。
+## Sessions and cookies
 
-**容量の検討**: `chrome.storage.sync` は全体 100 KB（`QUOTA_BYTES` = 102,400）、1 項目 8 KB（`QUOTA_BYTES_PER_ITEM` = 8,192）、512 項目（`MAX_ITEMS`）、書き込み 120 回 / 分・1,800 回 / 時。保存している `state` は favicon の URL や最終アクセス時刻を含み、タブの変化のたびに書き換わるので、そのままでは容量・回数とも収まらない（20 タブ × 20 ワークスペースで素の JSON は約 100 KB）。そこで:
+Chrome has no per-tab or per-window cookie isolation API. One cookie session is active across the entire browser, so changing sessions affects every window. localStorage, IndexedDB, and other site storage are not isolated.
 
-- **縮約**: タブは URL・タイトル（100 文字まで）・固定・タブグループ・アクティブだけにし（「よく開くタブ」の置き場も URL とタイトルだけ。容量超過でも省かない）（favicon は `favicon` 権限で表示できる、最終アクセス時刻は端末ごとの値）、ワークスペースごとに JSON → gzip（`CompressionStream`）→ Base64 の文字列にする。URL とタイトルは似た文字列が多く、素の JSON の 1/3〜1/2 程度になる。目安: 20 タブのワークスペース 1 件 ≒ 1 KB、100 KB で 60〜80 件分
-- **分割**: 文字列を 8 KB 以下の項目 `w.<id>.<n>` に分けて保存（先頭の項目は `<項目数>|` で始まり、揃っているかを読み取り側で確かめる）。設定・セッション・並び順は 1 項目 `m` にまとめる（ワークスペース数百件分の並び順まで 8 KB に収まる）
-- **収まらないとき**: 最後に開いた日時が古いワークスペースから順に**タブだけ**を省く（`tabsOmitted`。名前・色・アイコン・セッション・自動クローズの上書き・接続フォルダは必ず同期する）。省いたワークスペースは設定画面の「同期」に表示する。受け取った側は、省かれたワークスペースの自分のタブをそのまま残し、自分の端末で容量に余裕があればそのタブを書き戻す
-- **書き込み回数**: ローカルの変化から約 10 秒待ってまとめて書く（1 回の `set` が 1 回の書き込みに数えられる）。変わったワークスペースと `m` だけを書き、消えた / 減った項目は `remove` する。他の端末の変化（`storage.onChanged` の `sync`）は 2 秒待って取り込む（分割された項目が揃うのを待つ）
+- Adding a second session shows an extension consent dialog explaining use, storage, and deletion, then requests optional cookies and all-site host permission. Refusal cancels creation. There is no independent cookie-isolation toggle: granted permission enables swapping. Existing multiple-session configurations without permission show a permission prompt in settings.
+- On permission grant, the current cookies belong to the current workspace's session (or the last-used workspace's session), unless cookieSessionId is already set. A new session starts with no saved cookies.
+- Before switching to another session, save current cookies, including partitioned cookies, and finish writing them before deleting them. Remove current cookies and restore the target jar, excluding expired cookies and preserving hostOnly, session, sameSite, and partitionKey properties. Then update cookieSessionId.
+- During a same-window switch, old tabs close before cookie replacement to reduce contamination. A blank tab keeps the window alive until target tabs open.
+- Editing the session of an open workspace swaps cookies and reloads its non-discarded tabs. Deleting the currently active session first switches to the destination session; its saved jar is then deleted.
+- Saved jars use AES-GCM (256 bit), Base64 ciphertext in local storage, and a non-extractable CryptoKey in IndexedDB seiton-vault. Legacy plaintext jars are encrypted on startup/update. An undecryptable jar behaves as an empty jar and does not block switching.
+- **Delete saved cookies** leaves the browser's currently active cookies intact. Jars and keys are local and excluded from export/import and sync. Encryption does not provide OS-keychain-equivalent protection against other software on the same computer.
 
-**衝突の扱い（3 方向マージ）**: 端末ごとに「前回同期した版」（`storage.local` の `syncBase`）を持ち、ワークスペース・セッション・設定・並び順の単位で、ローカル・リモート・base を比べる。片方だけが base から変わっていればその側（削除も含む）、両方が変わっていれば更新時刻（ワークスペースの `updatedAt`、セッションの `updatedAt`、設定の `settingsAt`、並び順の `orderAt`）の新しい方（同時刻はローカル）。片方で削除してもう片方で変更した場合は変更を残す。墓標（削除の記録）は持たない。リモートが空（他の端末で「同期データを削除」した直後）のときは base を無視し、ローカルの内容を削除とみなさず全部書き戻す。同期を ON にしたときも base を捨て、ローカルとリモートの和集合から始める（どちらも消えない）。`lastOpenedAt` は常に大きい方
+Other windows left open in a different session use the newly active login on their next request; pages can also write cookies into that active session. This is a browser-wide login switch, not concurrent session isolation.
 
-**同期しないもの**: 退避した Cookie（大きく、暗号化の鍵が端末ごとで、セキュリティ上も同期すべきでない）、閉じたタブの履歴、favicon・最終アクセス時刻、最後に使っていたワークスペース（`lastFocusedWorkspaceId`）、「同期する」設定自体（`settings.syncEnabled`。端末ごと。インポートでも今の値を保つ）。接続したブックマークフォルダは ID がブラウザごとに違うので、ルートからのフォルダ名の配列（パス）で同期し、受け取った側は同じパスのフォルダを探して接続する（無ければ未接続のまま `bookmarkFolderPath` にパスを覚え、以後の同期のたびに探し直す。Chrome のブックマーク同期でフォルダが届けば自動で接続される。自動で作ることはしない＝二重に作らないため）。
+## Parking
 
-**動き**: 設定・管理画面の「同期」で ON / OFF、「今すぐ同期」、使用量（KB / 100 KB）と最後の同期・タブを省いたワークスペース・エラーの表示、「同期データを削除」（同期ストレージを空にしてこの端末の同期を OFF にする。各端末のローカルは消えない。他の端末は空のリモートを見て全部書き戻す）。起動時（`onStartup` / `onInstalled`）にも一度取り込む。リモートの設定を取り込んだ後はアラーム・ワークスペースタブ・ツールバー表示を再設定する。消えたワークスペースを開いていたウィンドウは未割り当てになる（タブは閉じない）。インポートは「最新」として扱い（`settingsAt` / `orderAt` を今にする）、インポートに無いワークスペースはリモートからも消える。
+Park and switch keeps current tabs in a collapsed group named with ⏸, the workspace icon, and its name/color. Pinned tabs are unpinned into the group. An otherwise empty new-tab workspace is closed normally. Parked tabs remain associated with their original workspace.
 
-**制限**: 同じワークスペースを 2 台で同時に開いて使うと、最後にタブを操作した側の構成が保存される（開いているウィンドウのタブを閉じたり増やしたりはしない。次にそのワークスペースを開き直したときに反映される）。容量を超えた分のタブは同期されない。同期データが新しい版（`v` が大きい）なら取り込まずエラーにする。
+Resuming restores pinned state, original groups, and the active tab without reloading. A parked group in another window moves into the target window; opening with ⧉ moves it to a new window. Ending parking snapshots and closes the group. Manually closing every parked tab also ends parking. Renaming/recoloring updates the group; deleting its workspace makes it an ordinary group without ⏸.
 
-## 休止
+The parked map in chrome.storage.session stores group ID, workspace, and original tab metadata, following tab-ID changes after discard. Browser restarts lose this metadata; restored ⏸ group titles are used to identify parked workspaces, but original pinned/group structure is lost.
 
-切替は「保存して閉じ、URL から開き直す」ため、フォームの入力途中などページ内の状態は失われる。どうしても消したくないときの逃げ道として **休止して切替** を用意する。
+Parking is rejected when a switch requires cookie replacement. Such normal switches also close parked groups in that window after saving them. Parked tabs remain subject to Chrome memory saving and auto-close; auto-close follows the containing window's settings and records the original parked workspace in closed-tab history.
 
-- **休止して切替**（管理パネルの検索ボックスで Ctrl+Enter（Mac は ⌘+Enter）/ 一覧の行にマウスを乗せると出る ⏸ / 詳細の「⏸ 休止して開く」/ ＋ の作成ダイアログの「今のワークスペースのタブは閉じずに休止して残す」/ クイックパレットで Ctrl+Enter）: 今のワークスペースのタブを閉じずに、同じウィンドウの折りたたんだタブグループ **「⏸ 絵文字 名前」**（色はワークスペースの色）にまとめてから、切替先を開く。固定タブは固定を外してグループに入れる。中身のあるタブが無い（新しいタブだけ）ときは従来どおり閉じる
-- **既定の切替方法**（設定・管理の「表示・操作」、設定 `switchMode`、同期される）: Enter / 行クリック / 番号キー / クイックパレットの Enter で使う方法を「切替（今のタブを閉じる）/ 休止して切替 / 新しいウィンドウで開く」から選べる。Ctrl+Enter は休止との入れ替え（既定が休止なら閉じる切替）、Shift+Enter は新しいウィンドウとの入れ替え（既定が新しいウィンドウなら閉じる切替）。行の ⏸ / ⧉ は設定に関係なくそれぞれ休止 / 新しいウィンドウ。管理パネルのヒントは設定に合わせて変わる
-- **再開**: 休止中のワークスペースを選ぶ（行クリック / Enter / Ctrl+Enter）とグループを解き、固定・元のタブグループ・前面だったタブを戻す。今のワークスペースは Enter なら閉じ、Ctrl+Enter なら休止する。別のウィンドウで休止中なら、グループごとこのウィンドウへ移して再開する。⧉ なら新しいウィンドウへ移して再開する（どちらもタブは読み込み直さない）
-- **休止を終了**: 詳細の「休止を終了」で休止グループのタブを閉じる（閉じる直前の内容は保存される）。休止グループのタブを手で全部閉じても同じ
-- 休止中のタブは、その（休止中の）ワークスペースに保存され続ける（今のワークスペースには混ざらない）。管理パネルの一覧には「休止」/「別・休止」バッジ、詳細には「このウィンドウで休止中」、タブ一覧には休止中のタブが出る（行を開くとそのタブへ移動。ワークスペースは切り替わらない）
-- 記録は `chrome.storage.session` の `parked`（グループ ID → ワークスペース・元の固定 / グループ / 前面タブ。discard でタブの ID が変わったら追従する）。ブラウザを再起動するとグループ ID も記録も消えるので、起動時に復元されたグループのタイトル「⏸ …」から休止中として対応付け直す（元の固定・グループの情報は失われ、平らなグループとして再開する）
-- **制約**: セッションが変わる（Cookie を入れ替える）切替では休止できない（エラーになる）。別セッションのページを生かしたままにすると Cookie が混ざるため。同じ理由で、Cookie を入れ替える切替ではそのウィンドウの休止グループも閉じる（保存はされている）。休止中のタブも Chrome のメモリセーバーや自動クローズの対象になる（自動クローズはウィンドウのワークスペースの設定に従い、閉じたタブの履歴には休止中のワークスペースの名前で記録する）。名前・アイコン・色を変えるとグループのタイトル・色も追従し、ワークスペースを削除するとグループは「⏸」無しの普通のグループになる
+## Panel, palette, and navigation
 
-## 使い方の詳細
+The management panel (Alt+Shift+K or ☰) is a temporary popup centered over the target window at about 85% of its size. Only one panel exists; invoking it for another window replaces it. It focuses search on opening and closes after navigation, loss of focus, or closing its target window. Esc first dismisses a dialog/editor, then search text, then the panel. Non-navigation actions such as closing a tab or freeing memory keep it open.
 
-- **管理パネル**（`Alt+Shift+K` / パレット右上の ☰）: 呼び出したウィンドウ（以下「このウィンドウ」）の上に、その約 85% の大きさの一時的なポップアップウィンドウとして中央に重ねて開く（タブとしては残らない）。ワークスペース、接続フォルダのブックマーク、タブを並べて表示。開くと上部の検索ボックスにフォーカスが当たる。パネルは同時に 1 つだけで、`Alt+Shift+K` をもう一度押すと閉じる（別のウィンドウから開くと、既存のパネルを閉じてそのウィンドウ用に開き直す）
-  - 次のときに自動で閉じる: ワークスペースの切替・新しいウィンドウで開く・タブ / ブックマーク / 履歴を開くなど移動を伴う操作が完了したとき（移動先のウィンドウを前面にしてから閉じる）、何も開いていない状態で Esc を押したとき（検索語・✎ の編集・ダイアログがあれば先にそれを閉じる）、他のウィンドウをクリックするなどでフォーカスを失ったとき、このウィンドウを閉じたとき
-  - 上部の検索ボックス: ワークスペース（名前・セッション名・アイコン）、全ワークスペースの接続フォルダのブックマーク、Chrome の閲覧履歴（任意権限 `history`。未許可なら「閲覧履歴」の節に「権限を許可する」が出て、押すと Chrome の確認の後に同じ検索語で履歴が出る。取り消しは設定・管理の「表示・操作」。URL バーと同様にタイトル・URL で検索、新しい順）をまとめて検索。↑↓ で選択、Enter で開く（ワークスペースはこのウィンドウを切替、ブックマークはそのワークスペースが開いているウィンドウで開く）。Shift+Enter でワークスペースは新しいウィンドウ、URL はこのウィンドウで開く。Ctrl+Enter（Mac は ⌘+Enter）でワークスペースを「休止して切替」（今のタブを閉じずに折りたたんだグループに残す。上記「休止」参照）。Enter / 行クリック / 番号キーの方法は設定・管理の「表示・操作」の既定の切替方法に従う（Ctrl / Shift はその入れ替え）。Esc で検索語を消す（空ならパネルを閉じる）。`/` キーでどこからでもフォーカス
-  - 「ワークスペース」見出し右の ＋: モーダルで名前・アイコン・使うセッション・ブックマークフォルダ（新しく作成 / 接続しない / 既存のフォルダを選択）を入力して作成。作成後はこのウィンドウがそのワークスペースに切り替わる。未割り当てのウィンドウでは「今開いているタブをこのワークスペースにする」を選べる
-  - ワークスペース行をクリック: このウィンドウをそのワークスペースに切り替える（既に別ウィンドウで開いていればそのウィンドウへフォーカス。休止中なら再開）。右側にそのブックマークとタブ一覧を表示。行にマウスを乗せると ⏸（今のタブを休止して切替）と ⧉（新しいウィンドウで開く）が出る
-  - 詳細の ⧉: 新しいウィンドウで開く（既に別ウィンドウで開いていればそのウィンドウへフォーカス）。「⏸ 休止して開く」: 今のタブを休止して切替。休止中なら「再開」と「休止を終了」（休止グループのタブを閉じる）
-  - ✎: 名前・色・アイコン（既定の絵文字から選ぶか任意の絵文字を入力。「なし」で色のドット）・使うセッション・ブックマークフォルダの接続 / 並び替え / 削除
-  - ワークスペース行をドラッグ: 他の行の上半分（前）/ 下半分（後）に落として並び替え
-  - 左下のボタン: **⚙ 設定・管理**（設定・管理画面をこのウィンドウのタブで開く。自動クローズで閉じたタブがあれば件数のバッジ）/ **💤 メモリ解放**（非アクティブなタブのメモリを解放。タブは残る）/ **? 使い方**
-  - ブックマークや保存済みタブの行: その 1 件だけを開く（ワークスペース全体は開かない）
-  - ブックマークの下の「よく開くタブ」: ブックマークするほどではないが、よく開くページの置き場（ワークスペースごと）。開いているタブ・保存済みタブ・ブックマークの行をここ（見出しでも可）にドラッグ＆ドロップすると登録される（同じ URL は二重登録しない）。行を開くとそのページを開く（既に開いていればそのタブへ）。× で外す、行をドラッグして他の行の上半分（前）/ 下半分（後）に落として並び替え。置き場の行はブックマーク一覧やワークスペース行にもドロップできる（ブックマーク登録）。検索ボックスには全ワークスペースの置き場が「よく開くタブ」として出る
-  - 開いているタブの行: そのタブへ移動（× で閉じる）
-  - タブの行のチェックボックス（行にマウスを乗せると出る）: 複数のタブを選ぶと一覧の上にバーが出て、「移動先」のワークスペースへまとめて移せる（Shift+クリックで範囲選択、「すべて選択」/「解除」。1 件でも選んでいる間は、行のどこをクリックしてもタブを開かずに選択 / 解除になる）。移動先が開いていればそのウィンドウの末尾へタブを移し（読み込み直さない）、休止中なら休止グループ「⏸ …」に加え、開いていなければ保存タブに加えて元のタブを閉じる。開いていないワークスペースの「保存済みのタブ」も同じように移せる（移動先が開いていれば前面にせずに開く）。移した URL は元のワークスペースの保存タブから外れる
-  - 開いているタブの行をドラッグ: ブックマーク一覧へドロップすると選択中のワークスペースの接続フォルダに、左のワークスペース行へドロップするとそのワークスペースの接続フォルダに登録（同じ URL は二重登録しない。`chrome://` などは保存できない）。Chrome のブックマークバーへ直接ドロップすることもできる
-  - 未割り当てのウィンドウでは「今のタブをワークスペースとして保存」できる
-- **クイックパレット**（`Alt+K`）: ↑↓ で選択、Enter で開く。検索語の先頭に `>`（全角 `＞` も可）を付けるか Tab を押すと、タブ・ブックマークを隠してワークスペースだけを検索するモードになる
-  - タブ: そのタブへ移動（Delete で閉じる）
-  - ブックマーク: 既に開いていればそのタブへ、無ければ新しいタブで開く（Shift+Enter で現在のタブで開く）
-  - ワークスペース: 既定の切替方法で開く（既定ではこのウィンドウを切替。Shift+Enter で新しいウィンドウ、Ctrl+Enter で今のタブを休止して切替との入れ替え）
-- `Alt+Shift+D`: 現在のタブを接続フォルダへ保存（バッジに `+`、保存済みなら `=`、フォルダ未接続などで保存できない時は `!` が出て理由はアイコンのツールチップに表示）
-- `Alt+Shift+N`: 一覧の次のワークスペースへ（「前へ」は既定キー無し）
-- **番号キーでワークスペース切替**: 管理パネルの一覧では各ワークスペースの左に並び順で番号（1〜9、10 番目は 0）が付く。入力欄にフォーカスがないとき（空の検索ボックスは可）に番号キー（テンキーも可）を押すとこのウィンドウがそのワークスペースに切り替わり、`Shift`+番号で新しいウィンドウで開く。検索ボックスに文字があるときは通常の入力
-- **今のワークスペースの表示**: 管理パネルを開かなくても分かるよう、ツールバーの seiton アイコンがウィンドウごとに今のワークスペースの色とアイコン（絵文字が無ければ名前の頭文字）になり、ホバーで「seiton — 名前（セッション名）」が出る。未割り当てのウィンドウでは既定のアイコンに戻る
-- **ワークスペースタブ**（既定 ON）: ワークスペースに割り当てられたウィンドウのタブ列の左端（固定タブがあればその直後）に、今のワークスペースの色で「絵文字 名前」のラベル（タブグループ）を常に表示する。グループの中身は seiton のページ 1 枚だけで、既定で折りたたまれているのでラベルだけが見える
-  - ラベルをクリックするとグループが開き、中のタブで今のワークスペース（アイコン・名前・セッション）、全ワークスペースの一覧（クリックでこのウィンドウを切替、⧉ で新しいウィンドウ。別ウィンドウで開いていればそちらへ）、「管理パネルを開く」、接続フォルダのブックマーク（クリックで新しいタブで開く）を使える
-  - ワークスペースを切り替えるとラベルの色・名前が切替先のものに変わる（このタブ自体は閉じない）。✎ で名前・色・アイコンを変えても追従する
-  - 閉じても、グループから外しても、別のグループに入れても、自動で作り直して左端のグループに戻す（ラベルの名前や色を手で変えても次の更新で戻る）。表示したくない場合は設定の「ウィンドウの左端にワークスペースタブ（色付きのグループ）を表示」を OFF にすると全ウィンドウから消える
-  - このタブとそのグループはワークスペースに保存されない。未割り当てになったウィンドウ（✎ の「切り離す」・ワークスペース削除）では閉じる。ただしそれがウィンドウ最後のタブならウィンドウが閉じないよう残し、グループを外して「未割り当て」と表示する
-  - パレット・管理パネルのタブ一覧には出さない
+- Search spans workspace name/session/icon, linked bookmarks across workspaces, frequently opened pages, and browsing history if authorized. History is read only on search and can be revoked in settings. Arrow keys select, Enter opens, and / focuses search.
+- ＋ creates a workspace with name, icon, session, and a new/existing/no bookmark folder. Unassigned windows may adopt existing tabs. ✎ edits name, color, icon (preset/custom/none), session, folder, and auto-close override.
+- Drag workspace rows onto another row's upper/lower half to insert before/after it. Number keys 1–9 and 0 select the first ten workspaces when not editing; a nonempty search accepts digits as text. Shift opens a new window.
+- The configured switchMode applies to row clicks, Enter, and number keys: normal switch, park and switch, or new window. Ctrl+Enter (⌘ on Mac) swaps the default with parking; Shift+Enter swaps it with new-window opening. Explicit ⏸ and ⧉ buttons always perform their respective actions.
+- Bookmark/saved-tab rows open a single page. Existing open pages are focused. Drag a tab onto bookmarks or a workspace row to bookmark it in the linked folder; duplicate URLs and unsupported pages are rejected.
+- The palette (Alt+K) incrementally searches tabs, bookmarks, frequently opened pages, and workspaces. Prefix > (or full-width equivalent), or press Tab, for workspace-only mode. Delete closes a tab result; Shift+Enter opens a bookmark in the current tab.
+- Alt+Shift+D saves the current tab in the linked folder; the toolbar badge shows + (saved), = (already saved), or ! (failed, with reason in the tooltip). Alt+Shift+N selects the next workspace in the same session. Customize keys at chrome://extensions/shortcuts; previous workspace has no default.
 
-ショートカットは `chrome://extensions/shortcuts` で変更できます。`Alt+K` などが IME や他アプリと衝突する場合はここで変えてください（manifest で既定キーを指定できるのは 4 個までのため、「前のワークスペース」は未割り当て）。
+### Moving tabs and the frequently opened shelf
 
-## 仕様メモ
+Select tab checkboxes (Shift-click selects a range), choose a destination, and move in bulk. While selection exists, clicking a row toggles selection rather than opening it. An open destination receives live tabs without reload; a parked destination receives them in its group. A closed destination receives saved tabs and source tabs close. Moving saved tabs into an open workspace opens them in the background, respecting lazy loading. URLs are removed from the source snapshot. A blank tab prevents the source window from closing.
 
-- 1 つのワークスペースは同時に 1 ウィンドウでのみ開く（2 つ目を開こうとすると既存ウィンドウにフォーカス）。休止中のワークスペースも「開いている」扱いで、選ぶとそのグループを解いて再開する（別ウィンドウで休止中ならグループごと移す）
-- 未割り当てウィンドウで別ワークスペースへ切り替えると、そのウィンドウのタブは「未整理 M/D HH:mm」というワークスペースとして自動保存してから切り替える（タブを失わないため）
-- ワークスペースを削除してもブックマークフォルダとその中身は削除しない。開いているウィンドウのタブもそのまま残る（未割り当てになる）
-- 接続中のブックマークフォルダを削除すると、接続は自動で解除される
-- シークレットウィンドウは対象外
+Each workspace has a shelf of frequently opened pages below bookmarks. Drag open tabs, saved tabs, or bookmarks onto it to register unique URLs. Click opens or focuses a page; × removes it; drag to reorder. Shelf items can be dragged into bookmarks and appear in panel/palette search. The shelf is exported and synced, and is retained when sync omits ordinary tabs for space.
 
-## メモリ管理の方針
+### Workspace indicators
 
-**結論: 拡張側では最小限だけ実装し、基本は Chrome 標準の「メモリセーバー」に任せる。**
+Toolbar icons show workspace color plus emoji or initial per window, with workspace/session tooltip. Unassigned windows use the default icon.
 
-- Chrome には標準で **メモリセーバー**（設定 → パフォーマンス、`chrome://settings/performance`）があり、非アクティブなタブのメモリを自動で解放（discard）する。メモリ逼迫度、音声再生・フォーム入力中・画面共有中などの状態を考慮して判断するため、拡張から一律に discard するより安全で賢い。解放しないサイトの除外リストも Chrome 側で設定できる。
-- このツールではワークスペースを切り替えると **他ワークスペースのタブは閉じる** ので、そもそも同時に存在するタブ数が現在のワークスペース分に限られる。これが最大のメモリ削減になる。
-- 「プレースホルダーページに置き換える」方式（タブの中身を軽いページに差し替える）は、拡張を削除・無効化するとタブの URL が失われる、履歴が汚れる、などの問題があるため採用しない（Chrome ネイティブの `tabs.discard` を使う）。
+The optional workspace tab (on by default) is a collapsed colored group at the left of the tab strip, after pinned tabs. Its page lists workspaces and bookmarks and opens the management panel. The tab survives switches and follows edits. Closing/moving/ungrouping it or changing its group is repaired automatically; disable the setting to remove it from all windows. The tab/group is excluded from snapshots and normal tab lists. Unassigned windows close it unless it is the last tab, in which case it stays ungrouped with an unassigned display.
 
-そのうえで、拡張では次の 2 点だけ提供する:
+## Bookmarks
 
-1. **遅延読み込み（既定 ON）**: ワークスペースを開く・復元する時、保存時に前面だったタブ 1 件だけを読み込む。他のタブは前面に出さず、URL が確定した時点で discard し、クリックした時点で読み込む。切替のあいだはそれまで前面だったタブを固定し、新しいタブが順に前面へ出ないようにする。
-2. **自動メモリ解放（既定 OFF）**: 「N 分以上使っていないタブのメモリを確実に解放したい」場合のみ設定で有効化。固定タブ・音声再生中のタブは対象外。
-3. 管理パネル左下の「💤 メモリ解放」で、今すぐ手動で解放することもできる（ワークスペースの「休止」とは別。休止はタブをグループに残す切替方法）。
+A workspace can link a new or existing folder. Bookmarks explicitly created through Ctrl+D or the star are moved to that folder; Alt+Shift+D saves directly. Bookmarks created through the bookmark manager or arriving through browser sync are not moved. Folder contents are searchable. Workspace deletion does not delete bookmarks.
 
-推奨設定: Chrome のメモリセーバーを ON（「バランス」または「最大」）＋ 本拡張は既定のまま。
+## Memory
 
-## タブの自動クローズ
+Prefer Chrome's built-in Memory Saver (chrome://settings/performance), which considers activity such as audio and forms. Normal workspace switching already reduces the number of open tabs. The extension uses native tabs.discard rather than replacing URLs with placeholder pages.
 
-メモリ解放（discard）ではなくタブそのものを閉じる機能。既定 OFF。
+- Lazy loading is on by default: restore/load only the saved active tab initially; other tabs are discarded once their URLs are established, without being brought to the foreground.
+- Optional automatic memory release is off by default and skips pinned and audible tabs.
+- The panel's 💤 action discards inactive tabs immediately. It is separate from parking.
 
-- **設定**: 設定画面の「タブの自動クローズ」で ON / OFF と期間（分 / 時間 / 日で入力。内部は日数 `settings.autoClose = { enabled, days }` で保持。既定 `{ enabled: false, days: 7 }`。最短 15 分 = 0.01 日以上）
-- **ワークスペースごとの上書き**: 管理パネルの ✎ の「自動クローズ」で「設定に従う / 無効 / 有効（期間）」を選ぶ（`ws.autoClose = null | { enabled, days }`）。未割り当てのウィンドウはグローバル設定に従う
-- **除外 URL**: `settings.autoCloseExclude`（文字列の配列、既定 `[]`）に当てはまるタブは期間が過ぎても閉じない。設定画面の「タブの自動クローズ」で追加・編集・削除し、管理パネルの「開いているタブ」の行の 🛡 からは「このページ（URL の前方一致）/ このサイト全体（ホスト）」を選んで追加できる（除外中のタブには「除外」バッジが出て、クリックで解除）。書き方は `github.com`（ホスト。サブドメインも含む）、`mail.google.com/mail`（ホスト + パスの先頭）、`https://example.com/docs`（スキーム付きは URL 全体の前方一致）、`*` は任意の文字列。前方一致は境界付き（`example.com/a` は `/ab` に当たらない）。判定は `core.js` の `matchesExcludePattern` / `autoCloseExcludeMatch`（純粋関数）。エクスポート / インポートに含まれる
-- **判定**: `tab.lastAccessed`（最後にアクティブだった時刻）から日数以上経ったタブ。アクティブタブ・固定タブ・音声再生中のタブ・`chrome-extension://` のページ（管理パネルなど seiton 自身のページ）・除外 URL に当てはまるタブ・`lastAccessed` が無いタブは対象外。ウィンドウの最後の 1 枚は閉じない（ウィンドウが消えるため）
-- **実行**: `chrome.alarms` の `auto-close` アラームで 15 分ごと（有効化・起動の 1 分後に初回）。グローバル設定かいずれかのワークスペースの上書きが ON のときだけアラームを張る。ワークスペース切替中のウィンドウは触らない。閉じた件数はサービスワーカーのコンソールに出る
-- ワークスペースを開き直しても、保存時の最終アクセス時刻を引き継いで判定する（切替で作り直したタブの `tab.lastAccessed` は作成時刻になるため、スナップショットに `lastAccessed` を保存し、復元したタブは一度前面にするまで保存時の値を使う。対応表は `storage.session` に持つので、拡張の再読み込みなどで消えると、それまでに作り直して一度も前面にしていないタブは作り直した時刻から数え直す）
-- 対象は今開いているタブだけ。開いていないワークスペースの保存済みタブには影響しない。閉じたタブは通常のタブを閉じたときと同じく、そのワークスペースの保存内容からも外れる（Chrome の履歴からも開き直せる）
-- **閉じたタブの履歴**: 閉じたタブは設定・管理画面の「閉じたタブ」から開き直せる（最大 500 件、一括削除可）。閉じる直前にタイトル・URL・閉じた日時・ワークスペース（ID と閉じた時点の名前。削除したワークスペースでも名前を表示できる）を `storage.local` の `closedTabs` に新しい順で記録し、500 件を超えた分は古いものから捨てる。一覧は日付（今日 / 昨日 / M/D）ごとに並び、タイトル・URL で絞り込める。行をクリックするとそのワークスペースが別ウィンドウで開いていればそこで、なければこのウィンドウで開き、開けたら履歴から消す（開けなかったときは残す）。× で 1 件削除、「すべて削除」（2 回押しで確定）で一括削除。記録に失敗しても自動クローズ自体は続ける
+## Automatic tab closing
 
-## 構成
+Off by default. Global settings hold autoClose = { enabled, days } (default false, 7 days). Input accepts minutes, hours, or days; the minimum is approximately 15 minutes (0.01 days). A workspace override is null (inherit) or { enabled, days }; unassigned windows use global settings.
 
-```
-manifest.json
-src/
-  background.js        サービスワーカー。Chrome のイベント処理と UI からのメッセージ処理（状態を書き込む唯一の場所）
-  lib/core.js          chrome API に依存しない純粋ロジック（スナップショット化・URL 照合・ブックマーク振り分け判定など）
-  lib/store.js         storage.local（永続状態）/ storage.session（ウィンドウ⇔ワークスペースの対応）と直列実行キュー
-  lib/workspace.js     切替・スナップショット・復元・セッション操作・起動時の対応付け
-  lib/cookies.js       セッションごとの Cookie の分離（退避 / 全削除 / 復元の入れ替え、任意権限の確認、状態の表示用の集計、旧版の平文 jar の暗号化）
-  lib/vault.js         退避した Cookie の暗号化（AES-GCM。鍵は IndexedDB の書き出せない CryptoKey、暗号文は storage.local に Base64。テストは鍵の置き場を差し替える）
-  lib/syncdoc.js       同期の純粋ロジック（state ⇔ 同期ドキュメントの変換、3 方向マージ、8 KB 単位の分割、容量に収めるためのタブの省略、書く項目の差分）
-  lib/parked.js        休止: 休止グループの記録（storage.session の parked）、グループ化 / 解除、タブ ID の追従、再起動後の復旧
-  lib/sync.js          同期の chrome API 側（storage.sync の読み書き、gzip + Base64、base の保持、接続フォルダのパス ⇔ ID、デバウンス、ON / OFF と同期データの削除）
-  lib/bookmarks.js     ブックマークフォルダ操作
-  lib/memory.js        discard 関連
-  lib/history.js       自動クローズで閉じたタブの履歴（storage.local の closedTabs。一覧 / 追加 / 個別削除 / 一括削除、独自の直列キュー）
-  lib/indicator.js     ツールバーのアイコン / タイトルをウィンドウごとの今のワークスペースに差し替える（全タブにタブ単位で適用）
-  lib/draw.js          ワークスペースのアイコン画像（色＋絵文字 / 頭文字）の描画。ツールバーアイコンとワークスペースタブの favicon で共用
-  lib/wstab.js         ワークスペースタブ（ウィンドウ左端の専用タブ＋色付きタブグループ）を置く / 直す / 閉じる。冪等・直列キューで実行
-  lib/manager.js       管理パネルのポップアップウィンドウを開く / 閉じる（同時に 1 つだけ。対象ウィンドウは ?windowId= で渡す）
-  ui/sidepanel.*       管理パネル（対象ウィンドウの上に一時的なポップアップウィンドウとして表示）
-  ui/wstab.*           ワークスペースタブのページ（今のワークスペース・ワークスペース一覧・管理パネル・ブックマーク）
-  ui/popup.*           クイックパレット
-  ui/options.*         設定・管理画面（管理: ワークスペース / セッション / 閉じたタブ、設定: 表示 / メモリ / 自動クローズ / ブックマーク / ショートカット / 同期 / バックアップ。左のサイドメニューで節を切替、#autoclose などで直接開ける）
-  ui/manage.*          設定・管理画面の「管理」の節（ワークスペース / セッション / 閉じたタブ）。並び替えの DnD とアイコン選択は管理パネルと共用
-  ui/guide.*           使い方ページ（初回インストール時に自動で開く）
-test/*.test.js         純粋ロジックのユニットテスト
-scripts/check.js       manifest・参照ファイル・構文・import 名の静的チェック
-```
+URL exclusions in settings.autoCloseExclude support host/subdomains, host plus path prefix, full URL prefix, and * wildcards. Prefixes respect boundaries: example.com/a does not match /ab. Edit exclusions in settings or use 🛡 on a tab row for a page/site exclusion. An excluded badge removes the exclusion when clicked. Exclusions are exported/imported.
 
-### データ
+Eligible tabs are older than the threshold using lastAccessed. Active, pinned, audible, extension, excluded, and timestamp-less tabs are skipped, as is the final tab in a window. Only open tabs are affected. A 15-minute alarm runs when any global/workspace rule is enabled, first running about one minute after enabling/startup; switching windows are skipped.
 
-- `chrome.storage.local` の `state`: セッション（名前のみ）・ワークスペース（使うセッション ID・色・アイコン・保存タブ・タブグループ・接続フォルダ ID・よく開くタブ置き場 `shelf`（`[{ url, title }]`））・ワークスペースの並び順 `workspaceOrder`・設定。設定画面からエクスポート / インポート可能。v1（セッションが `workspaceIds` を持つ形）のデータは読み込み時に自動で移行
-- `chrome.storage.local` の `cookieJars` / `cookieSessionId`: セッションごとに退避した Cookie（`{ [sessionId]: { savedAt, cookies: chrome.cookies.Cookie[] } }`）と、今 Chrome に入っている Cookie がどのセッションのものか。エクスポート / インポートの対象外
-- `chrome.storage.local` の `closedTabs`: 自動クローズで閉じたタブの履歴（新しい順、最大 500 件。`{ id, url, title, favIconUrl, closedAt, workspaceId, workspaceName, reason: 'auto' }`）。`state` はタブの変化のたびに保存されるので肥大化させないよう別キーにしている。エクスポート / インポートの対象外
-- `chrome.storage.session` の `parked`: 休止中のワークスペース（グループ ID → ワークスペース ID・元の固定 / グループ / 前面タブ）。再起動で消え、グループのタイトル「⏸ …」から復旧する
-- `chrome.storage.local` の `syncBase` / `syncStatus`: 前回同期した版の同期ドキュメント（3 方向マージの base）と、設定画面に出す同期の状態（最終同期・使用量・タブを省いたワークスペース・エラー）。エクスポート / インポートの対象外
-- `chrome.storage.sync` の `m` / `w.<workspaceId>.<n>`: 同期ドキュメント（上記「同期」参照）。`m` = 設定・セッション・並び順、`w.*` = ワークスペース 1 件を gzip + Base64 にして 8 KB 以下に分割したもの
-- `state` の `settingsAt` / `orderAt`、セッションの `updatedAt`、ワークスペースの `updatedAt` / `bookmarkFolderPath`: 同期の衝突で新しい方を採るための更新時刻と、まだこのブラウザに無い接続フォルダのパス
-- `chrome.storage.session` の `bindings`: `windowId → workspaceId`。ウィンドウ ID は再起動で変わるため、起動時に URL の重なりで作り直す
+Snapshots preserve lastAccessed across reopening until the restored tab is activated. This association lives in storage.session; losing it resets never-activated restored tabs to their creation time.
 
-### 再起動時の復元ロジック
+Closed-tab history is stored separately, newest first, capped at 500 entries. It includes URL, title, close time, original workspace ID/name, favicon, and reason. Settings groups it by date and allows search, reopen, individual delete, and double-confirmed bulk deletion. Successful reopening removes the entry; failure retains it. If its workspace has an open window, reopening uses that window. Logging failure does not block closing. Cookies and this history are excluded from export/import and sync.
 
-1. Chrome がタブを復元するのを待つ（最大十数秒）
-2. 各ウィンドウのタブ URL と各ワークスペースの保存 URL の重なりでマッチング（2 件以上一致かつ重なり率 50% 以上・1 対 1。Gmail などの共通 URL 1 件だけで誤って結び付けないため）
-3. 重なり率 80% 以上のウィンドウには、保存されているのに欠けているタブだけを追加（ユーザーのタブは閉じない）。マッチしなかったウィンドウは未割り当てのまま残す
-4. Chrome の「前回開いていたページを開く」が OFF で新しいタブだけのウィンドウなら、最後に使っていたワークスペースを開く
+## Sync
 
-## 既知の制限
+No custom account/server: chrome.storage.sync uses the browser account's extension sync service. Turn sync on in each device. Without a signed-in account it behaves locally until browser sync is available.
 
-- Chrome にはタブを「隠す」API が無いため、切替時はタブを閉じて開き直す。そのためフォームの入力途中の内容やページ内のスクロール位置、タブごとの戻る/進む履歴は引き継がれない。「休止して切替」を使えばタブを閉じずに残せるが、休止中も Chrome のメモリセーバーで解放されたタブは同様に失われ、ブラウザの再起動後は URL からの復元になる。セッションが変わる切替では休止できない
-- セッションごとの Cookie の分離は Chrome 全体で 1 セッションずつ（切替は全ウィンドウに及ぶ）。localStorage などは分けない。退避した Cookie は暗号化して保存するが、鍵も同じ PC の拡張の保存領域にある。詳細は上記「セッションごとの Cookie の分離」
-- `chrome://` の一部ページは拡張から開けない場合があり、その場合は復元をスキップする
-- ローカルファイル（`file://`）は、拡張に「ファイルの URL へのアクセス」（`chrome.extension.isAllowedFileSchemeAccess()`）が無いと `chrome.tabs.create` で開けない。許可が無いときは `file://` のタブを保存の対象外にし、切替で閉じずにそのウィンドウに残す（移動・起動時の補完・保存済みタブからの復元も飛ばす）。管理パネルと設定・管理の「表示・操作」に許可の案内を出す。許可があれば他のタブと同じ扱い（issue #55）
-- 同期は `chrome.storage.sync` の容量（100 KB）の範囲で行い、収まらない分はタブだけを省く。同じワークスペースを 2 台で同時に開いて使うと、最後にタブを操作した側の構成が残る。退避した Cookie・閉じたタブの履歴は同期しない。詳細は上記「同期」
+- Quotas: 102,400 bytes total, 8,192 per item, 512 items; 120 writes/minute and 1,800/hour.
+- Tabs retain URL, title (up to 100 characters), pinned/group/active metadata, omitting favicon and last-access time. Workspace JSON is gzip-compressed and Base64-encoded, split into w.<id>.<n> chunks below 8 KB. The first chunk starts with a chunk count. Metadata m holds settings, sessions, and order. Typical 20-tab workspaces compress to about 1 KB; capacity varies.
+- If oversized, omit only ordinary tabs from least-recently-opened workspaces. Keep names, colors, icons, sessions, overrides, folder paths, and shelf. Report omissions in settings. Receiving devices retain their existing tabs for omitted workspaces and may upload them if space permits.
+- Debounce local writes by about 10 seconds and incoming changes by about 2 seconds to collect chunks. Write only changed items and remove obsolete chunks.
+- Three-way merge compares local, remote, and syncBase per workspace/session/settings/order. One-sided changes win, including deletions. Concurrent changes use newer timestamps (ties favor local); changes beat deletion. lastOpenedAt uses the maximum. No tombstones are retained. An empty remote ignores base and gets local data republished. Enabling sync also discards base and starts with a union.
+- Saved cookies, closed-tab history, favicons, last-access timestamps, lastFocusedWorkspaceId, and syncEnabled do not sync. Import preserves the local sync-enabled value.
+- Bookmark-folder IDs are device-specific: sync a path of folder names, reconnect matching folders, and keep unresolved paths for later retries. Do not create missing folders automatically.
+- Settings displays usage, last sync, omissions, and errors, with sync-now and delete actions. Deleting sync data clears remote storage and disables this device's sync; another enabled device may republish its local state. Startup/update imports once. Incoming settings refresh alarms/indicators. Deleted workspaces unassign their windows without closing tabs.
+- Import timestamps settings/order as current and may remove workspaces remotely. A newer unsupported sync-document version is rejected.
+- Simultaneous edits to one workspace on multiple computers keep the last edited tab configuration. Existing live windows are not rewritten; changes appear when reopening the workspace.
+
+## Code and data
+
+| Module | Responsibility |
+|---|---|
+| background.js | Chrome events, message handling, state writes |
+| lib/core.js, store.js | Pure logic, normalized state, storage, serialized queue |
+| lib/workspace.js | Switch, snapshot, restore, sessions, startup matching |
+| lib/cookies.js, vault.js | Cookie swaps, permission checks, encryption and legacy migration |
+| lib/syncdoc.js, sync.js | Sync format/merge/chunk/quota logic and browser API integration |
+| lib/parked.js | Parking records, groups, tab-ID tracking and recovery |
+| lib/bookmarks.js, memory.js, history.js | Bookmark operations, discard, closed-tab history |
+| lib/indicator.js, draw.js, wstab.js | Per-window icons and workspace tab repair |
+| lib/manager.js | One management popup with target windowId |
+| ui/sidepanel.*, popup.*, options.*, manage.*, wstab.*, guide.* | Panel, palette, settings, management, workspace page, guide |
+
+Persistent storage keys:
+
+- **state:** Sessions, workspaces (session ID, color, icon, tab/group snapshots, folder ID, shelf of URL/title pairs), workspaceOrder, settings. Export/import includes this data. Legacy v1 session workspaceIds migrate on read.
+- **cookieJars / cookieSessionId:** Encrypted per-session jars (savedAt, enc, iv, data) and the active cookie session. Legacy plaintext cookies arrays migrate. Encryption keys are in IndexedDB.
+- **closedTabs:** Up to 500 records with id, url, title, favIconUrl, closedAt, workspaceId, workspaceName, and reason: auto.
+- **syncBase / syncStatus:** Merge base and last-sync/usage/omission/error display data; not exported.
+- **sync m / w.<workspaceId>.<n>:** Metadata and compressed/chunked workspaces.
+- **State timestamps:** settingsAt/orderAt and session/workspace updatedAt resolve conflicts; bookmarkFolderPath preserves pending folder matches.
+
+Session storage holds bindings (windowId → workspaceId), parked groups, and restored-tab access-time associations. Window IDs change after restart.
+
+### Startup recovery
+
+1. Wait up to several seconds for Chrome's tab restoration.
+2. Match saved/workspace URLs to windows one-to-one: at least two matching URLs and 50% overlap, avoiding accidental matches on one common page.
+3. At 80% overlap or more, add missing saved tabs without closing user tabs. Unmatched windows remain unassigned.
+4. If Chrome does not restore the previous session and has only a new-tab window, open the last-used workspace.
+
+## Known limitations
+
+Normal switches lose in-page state; parking can preserve it until Chrome discards the tab or the browser restarts. Cookie isolation is browser-wide and does not include other site storage. Some chrome:// pages cannot be opened by extensions and are skipped.
+
+Without file-URL access, file:// tabs are excluded from snapshots, moves, startup completion, and restoration, and left open during switches. The panel and display settings explain access; enabling **Allow access to file URLs** treats them normally. Sync quota and concurrent-edit limitations are described above.

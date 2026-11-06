@@ -12,6 +12,7 @@ Automated tests cover pure logic and Chrome API fakes. Run relevant scenarios in
 - [ ] Create, edit, search, switch, park, resume, move tabs, manage sessions, and show permission/error messages in both languages. No missing translation keys or mixed-language extension text appears.
 - [ ] User-entered workspace/session names and page/bookmark titles remain unchanged. Check narrow layouts and long English labels for clipping and keyboard access.
 - [ ] Export/import and sync keep a valid language preference. Older data without a language setting uses automatic selection.
+- [ ] In English, the three buttons at the bottom left of the manager (⚙ Settings / 💤 Free memory / ? Guide) are fully visible at the default panel size and wrap onto a second row instead of being clipped when the panel is narrow. Workspace rows show a reasonable part of long names; ⏸ / ⧉ appear only on hover or on the selected row, and the row for the current window has no ⧉.
 
 ## Workspaces and navigation
 

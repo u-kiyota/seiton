@@ -405,7 +405,8 @@ function renderList() {
         title: uiText("今のワークスペースのタブを閉じずに休止して、このワークスペースに切り替える"),
         onclick: (e) => { e.stopPropagation(); selectWorkspace(id); switchHere(id, { park: true }); },
       }, '⏸'),
-      h('button', {
+      // このウィンドウで開いている行では「開いているウィンドウへ移動」は意味が無いので出さない（名前の表示幅を空ける）
+      here ? null : h('button', {
         class: 'icon act', type: 'button',
         title: openIn != null ? uiText("開いているウィンドウへ移動") : uiText("新しいウィンドウで開く"),
         onclick: (e) => { e.stopPropagation(); openNewWindow(id); },

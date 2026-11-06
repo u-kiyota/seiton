@@ -73,18 +73,19 @@ body {
 .col-title .plus { font-size: 16px; line-height: 1; padding: 4px 8px; }
 .col-body { flex: 1; overflow: auto; min-height: 0; padding: 8px 10px 16px; }
 /* 左列の下部: 設定・管理（閉じたタブの件数バッジ付き）/ 休止 / 使い方 */
-.col-foot { display: flex; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--border); flex: none; }
-.col-foot button { flex: 1; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 6px; }
+/* 左下のボタン列。英語など文言が長くて収まらないときは折り返す（はみ出して見切れないように） */
+.col-foot { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--border); flex: none; }
+.col-foot button { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 6px; }
 #closedBadge { background: var(--accent); color: #fff; }
 
 .ws { border-radius: 8px; margin-bottom: 4px; }
-.ws-head { padding: 10px 12px; border-radius: 8px; cursor: pointer; gap: 8px; }
+.ws-head { padding: 10px 10px; border-radius: 8px; cursor: pointer; gap: 6px; }
 .ws-head:hover { background: var(--bg-hover); }
 .ws.sel > .ws-head { background: var(--bg-sel); }
 .ws.current > .ws-head { box-shadow: inset 3px 0 0 var(--accent); }
 .ws-session {
   font-size: 10px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--border);
-  color: var(--fg-sub); white-space: nowrap; max-width: 96px; overflow: hidden; text-overflow: ellipsis; flex: none;
+  color: var(--fg-sub); white-space: nowrap; max-width: 80px; overflow: hidden; text-overflow: ellipsis; flex: none;
 }
 
 .ws-edit {
@@ -160,9 +161,10 @@ body {
 .ws-head.dragging { opacity: .5; }
 .ws-head { cursor: pointer; }
 
-/* 休止（issue #35）: 行の操作ボタンはマウスを乗せたとき・選択中だけ出す。休止中のバッジは枠だけ */
-.ws-head button.act { visibility: hidden; flex: none; padding: 1px 5px; }
-.ws-head:hover button.act, .ws.sel > .ws-head button.act { visibility: visible; }
+/* 休止（issue #35）: 行の操作ボタンはマウスを乗せたとき・選択中だけ出す。休止中のバッジは枠だけ。
+   出していない間は場所も取らない（visibility: hidden だと幅が残り、名前の表示幅が数文字分しか残らないため） */
+.ws-head button.act { display: none; flex: none; padding: 1px 5px; }
+.ws-head:hover button.act, .ws.sel > .ws-head button.act { display: inline-flex; }
 .badge.parked { border: 1px solid var(--border); color: var(--fg-sub); white-space: nowrap; }
 
 /* タブの選択と別のワークスペースへの移動（issue #33）: チェックボックスはマウスを乗せたとき・チェック中・1 件でも選んでいる間だけ出す */

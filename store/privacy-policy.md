@@ -2,9 +2,10 @@
 
 [日本語](privacy-policy.ja.md)
 
-Effective date: not yet specified (the original policy's date is a placeholder).
+Last updated: November 6, 2026
 
 This policy describes how the seiton Chrome extension handles user information.
+seiton is developed and provided by Yu Kiyota, an individual developer (“the developer”). No company or organization is involved.
 
 ## 1. Information handled
 
@@ -37,8 +38,9 @@ Information is stored in browser extension storage. The extension has no develop
 
 ## 6. Changes
 
-Policy changes will be announced on this page.
+Policy changes will be announced by updating this page (store/privacy-policy.md in the GitHub repository). The Chrome Web Store listing links to this page.
 
-## 7. Contact
+## 7. Developer and contact
 
-Open an issue in the [GitHub repository](https://github.com/u-kiyota/seiton/issues).
+- Developer: Yu Kiyota
+- Contact: open an issue in the [GitHub repository](https://github.com/u-kiyota/seiton/issues).

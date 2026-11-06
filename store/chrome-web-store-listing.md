@@ -6,7 +6,7 @@ Draft listing text and permission explanations. Update this file before copying 
 - Listing and UI: English and Japanese.
 - Screenshots: store/screenshots/ (_en / _ja), 1280×800.
 - Icon: icons/icon128.png.
-- Privacy: [privacy-policy.md](privacy-policy.md).
+- Privacy: [privacy-policy.md](privacy-policy.md). The dashboard's privacy policy URL points to the GitHub copy: https://github.com/u-kiyota/seiton/blob/main/store/privacy-policy.md (Japanese: https://github.com/u-kiyota/seiton/blob/main/store/privacy-policy.ja.md).
 - Distribution: public, all regions, free.
 
 ## English

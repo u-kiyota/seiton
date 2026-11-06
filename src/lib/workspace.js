@@ -1,5 +1,6 @@
 // ワークスペースの切替・スナップショット・復元。
 // ここの関数は serialize() の中から呼ばれる前提（内部で serialize を呼ばない＝デッドロック防止）。
+import { t } from './i18n.js';
 import {
   uid, COLORS, normalizeIcon, snapshotTabs, tabUrl, isBlankUrl, isRestorableUrl, isFileUrl, isWorkspaceTabUrl,
   matchWindowsToWorkspaces, missingTabs, planRestore, workspacesUsingSession, normalizeAutoCloseOverride, moveInOrder,
@@ -210,9 +211,9 @@ function rememberOpened(state, windowWsId) {
  */
 export async function switchWorkspace(windowId, targetId, { park = false } = {}) {
   const state = await loadState();
-  if (!state.workspaces[targetId]) throw new Error('ワークスペースが見つかりません');
+  if (!state.workspaces[targetId]) throw new Error(t('ワークスペースが見つかりません'));
   // 管理パネルのポップアップなど、通常ウィンドウ以外をワークスペースにしない
-  if (!(await isNormalWindow(windowId))) throw new Error('切り替え先のウィンドウが見つかりません');
+  if (!(await isNormalWindow(windowId))) throw new Error(t('切り替え先のウィンドウが見つかりません'));
   let bindings = await getBindings();
   if (bindings[windowId] === targetId) return { windowId };
 
@@ -228,7 +229,7 @@ export async function switchWorkspace(windowId, targetId, { park = false } = {})
   }
 
   const swap = await needsCookieSwap(state, state.workspaces[targetId].sessionId);
-  if (park && swap) throw new Error('セッションが変わる切替では休止できません（Cookie を入れ替えるため、今のタブを残せません）');
+  if (park && swap) throw new Error(t('セッションが変わる切替では休止できません（Cookie を入れ替えるため、今のタブを残せません）'));
 
   // 未割り当てウィンドウに中身のあるタブがある場合は、失わないよう自動で新しいワークスペースとして保存する
   if (!bindings[windowId]) {
@@ -236,7 +237,7 @@ export async function switchWorkspace(windowId, targetId, { park = false } = {})
     const fileAccess = await hasFileAccess();
     if (current.some((t) => isRestorableUrl(tabUrl(t), { fileAccess }) && !isBlankUrl(tabUrl(t)))) {
       const d = new Date();
-      const name = `未整理 ${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+      const name = t('未整理 {date}', { date: `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}` });
       // Cookie の入れ替えはこの後の切替で行う（ここで入れ替えると、閉じる直前のタブを読み込み直すことになる）
       await createWorkspace({ name, sessionId: state.workspaces[targetId].sessionId, fromWindowId: windowId, adoptCookies: false });
       bindings = await getBindings();
@@ -368,7 +369,7 @@ async function destinationOf(workspaceId) {
 export async function moveTabsToWorkspace(tabIds, targetId) {
   const state = await loadState();
   const target = state.workspaces[targetId];
-  if (!target) throw new Error('移動先のワークスペースが見つかりません');
+  if (!target) throw new Error(t('移動先のワークスペースが見つかりません'));
   const bindings = await getBindings();
   const parkedMap = await getParked();
   const fileAccess = await hasFileAccess();
@@ -396,8 +397,8 @@ export async function moveTabsToWorkspace(tabIds, targetId) {
     tabs.push(t);
   }
   if (!tabs.length) {
-    if (fileSkipped === skipped && fileSkipped) throw new Error('ローカルファイル（file://）のタブは移動できません。chrome://extensions で「ファイルの URL へのアクセスを許可する」を ON にすると扱えます');
-    throw new Error(skipped ? '選んだタブは既にそのワークスペースにあります' : '移動するタブがありません');
+    if (fileSkipped === skipped && fileSkipped) throw new Error(t('ローカルファイル（file://）のタブは移動できません。chrome://extensions で「ファイルの URL へのアクセスを許可する」を ON にすると扱えます'));
+    throw new Error(skipped ? t('選んだタブは既にそのワークスペースにあります') : t('移動するタブがありません'));
   }
   const dest = await destinationOf(targetId);
   const sourceWindows = [...new Set(tabs.map((t) => t.windowId))];
@@ -434,7 +435,7 @@ export async function moveTabsToWorkspace(tabIds, targetId) {
       const snap = snapshotTabs(tabs, {}, inherited);
       await mutate((s) => {
         const ws = s.workspaces[targetId];
-        if (!ws) throw new Error('移動先のワークスペースが見つかりません');
+        if (!ws) throw new Error(t('移動先のワークスペースが見つかりません'));
         ws.tabs = appendSavedTabs(ws.tabs, snap.tabs).tabs;
         ws.updatedAt = Date.now();
       });
@@ -476,16 +477,16 @@ async function createSavedTabs(windowId, entries) {
  * どちらでもなければ保存タブに加える。戻り値: { moved, mode, workspaceName }
  */
 export async function moveSavedTabs(fromId, picks, targetId) {
-  if (fromId === targetId) throw new Error('同じワークスペースです');
+  if (fromId === targetId) throw new Error(t('同じワークスペースです'));
   const state = await loadState();
   const from = state.workspaces[fromId];
   const target = state.workspaces[targetId];
-  if (!from || !target) throw new Error('ワークスペースが見つかりません');
+  if (!from || !target) throw new Error(t('ワークスペースが見つかりません'));
   if ((await windowForWorkspace(fromId)) !== null || await parkedLocation(fromId)) {
-    throw new Error('開いているワークスペースのタブは、開いているタブの一覧から選んで移動してください');
+    throw new Error(t('開いているワークスペースのタブは、開いているタブの一覧から選んで移動してください'));
   }
   const { kept, taken } = takeSavedTabs(from.tabs, picks);
-  if (!taken.length) throw new Error('移動するタブがありません（一覧が古くなっています）');
+  if (!taken.length) throw new Error(t('移動するタブがありません（一覧が古くなっています）'));
   const dest = await destinationOf(targetId);
   if (dest.windowId !== null) switchingWindows.add(dest.windowId);
   let failure = null;
@@ -499,7 +500,7 @@ export async function moveSavedTabs(fromId, picks, targetId) {
     if (dest.mode === 'saved') {
       await mutate((s) => {
         const ws = s.workspaces[targetId];
-        if (!ws) throw new Error('移動先のワークスペースが見つかりません');
+        if (!ws) throw new Error(t('移動先のワークスペースが見つかりません'));
         ws.tabs = appendSavedTabs(ws.tabs, taken).tabs;
         ws.updatedAt = Date.now();
       });
@@ -601,7 +602,7 @@ export async function createWorkspace({ name, sessionId, color, icon, fromWindow
   const sid = state.sessions[sessionId] ? sessionId : state.sessionOrder[0];
   const ws = {
     id,
-    name: (name || '').trim() || `ワークスペース ${Object.keys(state.workspaces).length + 1}`,
+    name: (name || '').trim() || t('ワークスペース {number}', { number: Object.keys(state.workspaces).length + 1 }),
     color: COLORS.includes(color) ? color : COLORS[Object.keys(state.workspaces).length % COLORS.length],
     icon: normalizeIcon(icon),
     sessionId: sid,
@@ -753,7 +754,7 @@ export async function createSession(name) {
   await mutate((state) => {
     state.sessions[id] = {
       id,
-      name: (name || '').trim() || `セッション ${state.sessionOrder.length + 1}`,
+      name: (name || '').trim() || t('セッション {number}', { number: state.sessionOrder.length + 1 }),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

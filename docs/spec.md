@@ -90,7 +90,7 @@ Closed-tab history is stored separately, newest first, capped at 500 entries. It
 
 ## Sync
 
-No custom account/server: chrome.storage.sync uses the browser account's extension sync service. Turn sync on in each device. Without a signed-in account it behaves locally until browser sync is available.
+No custom account/server: chrome.storage.sync uses the browser account's extension sync service. In Chrome, Google's Chrome Sync stores the synchronized workspace/session/settings data, including saved tab URLs and titles and the metadata listed below, under your Google account. This optional browser-managed transmission is the exception to local-only storage; there is no developer-operated backend. Turn sync on in each device. Without a signed-in account it behaves locally until browser sync is available.
 
 - Quotas: 102,400 bytes total, 8,192 per item, 512 items; 120 writes/minute and 1,800/hour.
 - Tabs retain URL, title (up to 100 characters), pinned/group/active metadata, omitting favicon and last-access time. Workspace JSON is gzip-compressed and Base64-encoded, split into w.<id>.<n> chunks below 8 KB. The first chunk starts with a chunk count. Metadata m holds settings, sessions, and order. Typical 20-tab workspaces compress to about 1 KB; capacity varies.

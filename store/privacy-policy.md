@@ -19,8 +19,8 @@ This policy describes how the seiton Chrome extension handles user information.
 
 ## 2. Transmission
 
-- The extension does not send this information to developer or third-party servers.
-- Only when you enable sync, workspace/session information and settings are stored through the browser's chrome.storage.sync service and synchronized with your other browsers signed into the same account. The developer cannot access this storage. Cookies, closed-tab history, and browsing history are not synchronized.
+- The extension does not send this information to developer-operated servers or other third-party services, except for the optional browser-account sync described below.
+- Only when you enable sync, workspace and session names, workspace configuration and order, settings, saved tab URLs and titles, pinned/active state, tab-group information, frequently opened page URLs and titles, and linked bookmark-folder paths are stored in chrome.storage.sync. In Google Chrome, Google's Chrome Sync service stores and synchronizes this information with your other browsers signed into your Google account with extension sync enabled. Other supported browsers use their own account sync service. This is an exception to local-only storage: the browser provider handles synchronization; the developer has no access to this sync storage. Saved cookies, auto-closed tab history, browsing-history search results, favicons, and tab last-access timestamps are not synchronized.
 - No ads, analytics, or tracking.
 
 ## 3. Sharing and sale
@@ -33,7 +33,7 @@ Uninstalling removes local extension storage. Before uninstalling, use **Delete 
 
 ## 5. Security
 
-Information is stored in browser extension storage; the extension makes no external network requests. Saved cookies are encrypted with AES-GCM (256 bit). The encryption key is stored as a non-extractable browser key.
+Information is stored in browser extension storage. The extension has no developer-operated backend and makes no direct external network requests; enabling sync allows the browser's own sync service to transmit and store the information described in section 2. Saved cookies remain local and are encrypted with AES-GCM (256 bit). The encryption key is stored as a non-extractable browser key.
 
 ## 6. Changes
 

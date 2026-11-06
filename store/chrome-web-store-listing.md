@@ -53,7 +53,7 @@ The interface supports English and Japanese. Choose Automatic (browser language)
 - No sign-up and no server of our own
 
 ■ Privacy
-- All data stays in your browser (and your own Chrome sync storage). Nothing is sent to the developer's servers.
+- Data stays in your browser unless you enable sync. With sync enabled, Google's Chrome Sync stores saved tab URLs/titles and workspace, session, and settings data under your Google account. Saved cookies, browsing-history search results, and auto-closed tab history are not synced. Nothing is sent to developer-operated servers.
 - No ads, analytics, or tracking.
 
 Shortcuts (customizable at chrome://extensions/shortcuts)

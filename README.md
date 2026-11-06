@@ -123,7 +123,7 @@ Run **npm test** and **npm run check** before committing; CI runs both. Use [the
 
 ## Privacy
 
-Data stays in your browser. The extension does not send it to developer or third-party servers. Optional sync uses the browser account's own sync service. Read the [privacy policy](store/privacy-policy.md).
+Data stays in your browser unless you enable sync. With sync enabled, saved tab URLs/titles and workspace, session, and settings data are stored through the browser account's sync service (Google Chrome Sync in Chrome). Saved cookies, browsing-history search results, and auto-closed tab history remain local. The extension sends nothing to developer-operated servers. Read the [privacy policy](store/privacy-policy.md) for the full list.
 
 ## License
 

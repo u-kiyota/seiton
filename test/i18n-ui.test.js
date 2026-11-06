@@ -71,6 +71,9 @@ test('開いている画面の文言・属性だけ更新し、入力・ユー�
     const label = new FakeElement(), input = new FakeElement();
     input.value = '入力途中の名前';
     const rawName = textNode('保存しました');
+    const destination = new FakeElement();
+    const where = uiText('（このウィンドウ）');
+    setText(destination, localizedValue(() => `🏠 保存しました${where}`));
     setText(label, uiText('保存しました'));
     setTranslatedAttribute(input, 'placeholder', uiText('名前'));
     const boundNode = label.children[0];
@@ -82,10 +85,12 @@ test('開いている画面の文言・属性だけ更新し、入力・ユー�
     assert.equal(input.attributes.placeholder, 'Name');
     assert.equal(input.value, '入力途中の名前');
     assert.equal(rawName.data, '保存しました');
+    assert.equal(destination.children[0].data, '🏠 保存しました(This window)');
     assert.equal(String(lazy), 'Enabled · days');
     assert.equal(String(commandLabel({ name: 'prev-workspace', description: 'old language' })), 'Previous workspace');
     applyLanguage('ja');
     assert.equal(boundNode.data, '保存しました');
+    assert.equal(destination.children[0].data, '🏠 保存しました（このウィンドウ）');
     assert.equal(input.attributes.placeholder, '名前');
     assert.equal(input.value, '入力途中の名前');
   } finally { globalThis.document = previous.document; globalThis.CustomEvent = previous.CustomEvent; setLanguage('ja'); }

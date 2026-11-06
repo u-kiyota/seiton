@@ -295,7 +295,7 @@ async function renderSync(st) {
   } else if (!st.enabled) {
     nodes.push(h('div', { class: 'muted' }, uiText("同期は OFF です。"), st.bytesInUse ? uiText(" 同期ストレージには {p0} のデータがあります（他の端末が書いたもの、または以前の同期）。ON にすると取り込みます。", {p0: (kb(st.bytesInUse))}) : ''));
   } else {
-    const when = st.lastSyncAt ? new Date(st.lastSyncAt).toLocaleString() : uiText("まだ同期していません");
+    const when = st.lastSyncAt ? localizedValue(() => new Date(st.lastSyncAt).toLocaleString(getLanguage())) : uiText("まだ同期していません");
     nodes.push(h('div', {}, h('strong', {}, uiText("最後の同期: ")), when, st.applied ? uiText("（他の端末の変更を取り込みました）") : ''));
     const used = st.bytes ?? st.bytesInUse ?? 0;
     const ratio = Math.min(1, used / st.quota);

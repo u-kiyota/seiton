@@ -898,7 +898,7 @@ function renderTabActions(view, keys) {
   const dest = h('select', { title: uiText("移動先のワークスペース") }, candidates.map((id) => {
     const w = state.workspaces[id];
     const where = windowOf(id) === windowId ? uiText("（このウィンドウ）") : windowOf(id) != null ? uiText("（別ウィンドウ）") : parkedOf(id) ? uiText("（休止中）") : '';
-    return h('option', { value: id, selected: id === moveDest }, `${w.icon ? w.icon + ' ' : ''}${w.name}${where}`);
+    return h('option', { value: id, selected: id === moveDest }, localizedValue(() => `${w.icon ? w.icon + ' ' : ''}${w.name}${where}`));
   }));
   dest.addEventListener('change', () => { moveDest = dest.value; });
   const move = h('button', {

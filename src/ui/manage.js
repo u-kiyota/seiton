@@ -1,3 +1,4 @@
+import { uiText, setText, setTranslatedAttribute, replaceChildren, languageOnlyChange, getLanguage, localizedValue, commandLabel } from './i18n.js';
 // 管理 UI（ワークスペース / セッション / 閉じたタブ）。設定・管理画面（options.html）の「管理」の節に描く。
 // ワークスペースの並び替え（ドラッグ＆ドロップ）とアイコン選択は管理パネル（sidepanel.js）とも共用する。
 import {
@@ -40,7 +41,7 @@ function editingIn(root) {
 export function iconPicker(current, onPick) {
   let value = normalizeIcon(current);
   const box = h('div', { class: 'icon-picker' });
-  const custom = h('input', { type: 'text', placeholder: '絵文字', title: '一覧に無い絵文字を入力', maxlength: 16, autocomplete: 'off' });
+  const custom = h('input', { type: 'text', placeholder: uiText("絵文字"), title: uiText("一覧に無い絵文字を入力"), maxlength: 16, autocomplete: 'off' });
   const buttons = [];
   const sync = () => {
     for (const b of buttons) b.classList.toggle('sel', b.dataset.icon === value);
@@ -53,9 +54,9 @@ export function iconPicker(current, onPick) {
   const groups = ICON_GROUPS.map((g) => {
     const btns = g.icons.map((ic) => h('button', { type: 'button', 'data-icon': ic, title: ic, onclick: () => pick(ic) }, ic));
     buttons.push(...btns);
-    return row(h('span', { class: 'icon-label' }, g.label), ...btns);
+    return row(h('span', { class: 'icon-label' }, uiText(g.label)), ...btns);
   });
-  const none = h('button', { type: 'button', class: 'none', 'data-icon': '', title: 'アイコンなし（色のドットを表示）', onclick: () => pick('') }, 'なし');
+  const none = h('button', { type: 'button', class: 'none', 'data-icon': '', title: uiText("アイコンなし（色のドットを表示）"), onclick: () => pick('') }, uiText("なし"));
   buttons.push(none);
   // IME 変換中は確定するまで反映しない（変換中の文字列を保存しないため）
   const commitCustom = () => {
@@ -65,7 +66,7 @@ export function iconPicker(current, onPick) {
   custom.addEventListener('input', (e) => { if (!e.isComposing) commitCustom(); });
   custom.addEventListener('compositionend', commitCustom);
   custom.addEventListener('blur', () => { if (!normalizeIcon(custom.value) && !ICONS.includes(value)) pick(''); sync(); });
-  box.append(...groups, row(h('span', { class: 'icon-label' }, 'その他'), custom, none));
+  box.append(...groups, row(h('span', { class: 'icon-label' }, uiText("その他")), custom, none));
   sync();
   return box;
 }
@@ -163,21 +164,21 @@ function autoCloseControls(settings, ws, { onSave, blurOnChange = true }) {
   const globalAc = settings.autoClose || { enabled: false, days: 7 };
   const ac = ws?.autoClose || null;
   const acDaysValue = ac?.days ?? globalAc.days;
-  const mode = h('select', { title: 'タブの自動クローズ（設定の値をこのワークスペースだけ上書き）' },
-    h('option', { value: '', selected: !ac }, `設定に従う（${globalAc.enabled ? `有効・${formatAutoCloseDuration(globalAc.days)}` : '無効'}）`),
-    h('option', { value: 'off', selected: !!ac && !ac.enabled }, '無効'),
-    h('option', { value: 'on', selected: !!ac?.enabled }, '有効'));
+  const mode = h('select', { title: uiText("タブの自動クローズ（設定の値をこのワークスペースだけ上書き）") },
+    h('option', { value: '', selected: !ac }, uiText("設定に従う（{p0}）", {p0: (globalAc.enabled ? uiText("有効・{p0}", {p0: (localizedValue(() => { const d = autoCloseDuration(globalAc.days); return d.value + ' ' + uiText(AUTO_CLOSE_UNIT_LABELS[d.unit]); }))}) : uiText("無効"))})),
+    h('option', { value: 'off', selected: !!ac && !ac.enabled }, uiText("無効")),
+    h('option', { value: 'on', selected: !!ac?.enabled }, uiText("有効")));
   const dur = autoCloseDuration(acDaysValue);
-  const value = h('input', { type: 'number', min: '1', step: '1', value: String(dur.value), style: { width: '64px' }, title: '閉じるまでの期間（最後に使ってから）' });
-  const unit = h('select', { title: '単位' }, ...Object.entries(AUTO_CLOSE_UNIT_LABELS).map(([v, label]) =>
-    h('option', { value: v, selected: v === dur.unit }, label)));
+  const value = h('input', { type: 'number', min: '1', step: '1', value: String(dur.value), style: { width: '64px' }, title: uiText("閉じるまでの期間（最後に使ってから）") });
+  const unit = h('select', { title: uiText("単位") }, ...Object.entries(AUTO_CLOSE_UNIT_LABELS).map(([v, label]) =>
+    h('option', { value: v, selected: v === dur.unit }, uiText(label))));
   const durationBox = h('span', { class: 'row ac-duration', hidden: !ac?.enabled }, value, unit);
   const read = () => {
     if (!mode.value) return null;
     if (mode.value === 'off') return { enabled: false, days: acDaysValue };
     const days = autoCloseDaysFrom(value.value, unit.value);
     if (days === null) {
-      toast('期間は 15 分以上で入力してください', true);
+      toast(uiText("期間は 15 分以上で入力してください"), true);
       value.value = String(dur.value);
       unit.value = dur.unit;
       return undefined;
@@ -209,35 +210,35 @@ export function createWorkspaceManager(root, ctx) {
   let pending = false;
   let bulkAutoClose = null;
 
-  const allCheck = h('input', { type: 'checkbox', title: 'すべて選択 / 解除' });
+  const allCheck = h('input', { type: 'checkbox', title: uiText("すべて選択 / 解除") });
   const count = h('span', { class: 'muted small grow' });
   const list = h('div', { class: 'mg-list' });
-  const bulkSession = h('select', { title: 'セッション' });
-  const bulkColor = h('select', { title: '色' }, h('option', { value: '' }, '色を選択…'),
+  const bulkSession = h('select', { title: uiText("セッション") });
+  const bulkColor = h('select', { title: uiText("色") }, h('option', { value: '' }, uiText("色を選択…")),
     ...COLORS.map((c) => h('option', { value: c, style: { color: COLOR_HEX[c] } }, `● ${c}`)));
   const bulkAutoCloseSlot = h('span');
-  const bulkDeleteBtn = confirmButton('選択を削除', '本当に削除？', () => {
+  const bulkDeleteBtn = confirmButton(uiText("選択を削除"), uiText("本当に削除？"), () => {
     const ids = targets();
     if (!ids.length) return;
     attempt(async () => {
       const res = await call('deleteWorkspaces', { ids });
       for (const id of ids) selected.delete(id);
-      toast(`${res.count} 件を削除しました（ブックマークフォルダは残っています）`);
+      toast(uiText("{p0} 件を削除しました（ブックマークフォルダは残っています）", {p0: (res.count)}));
     });
-  }, { title: 'チェックした行をまとめて削除（ブックマークフォルダは残ります）' });
+  }, { title: uiText("チェックした行をまとめて削除（ブックマークフォルダは残ります）") });
   const bulk = h('div', { class: 'mg-bulk' },
-    h('span', { class: 'mg-bulk-title' }, 'チェックした行を一括変更:'),
-    h('span', { class: 'group' }, h('span', { class: 'label' }, 'セッション'), bulkSession,
-      h('button', { type: 'button', onclick: () => { if (!bulkSession.value) { toast('セッションを選んでください', true); return; } bulkApply({ sessionId: bulkSession.value }, 'セッション'); } }, '適用')),
-    h('span', { class: 'group' }, h('span', { class: 'label' }, '色'), bulkColor,
-      h('button', { type: 'button', onclick: () => { if (!bulkColor.value) { toast('色を選んでください', true); return; } bulkApply({ color: bulkColor.value }, '色'); } }, '適用')),
-    h('span', { class: 'group' }, h('span', { class: 'label' }, '自動クローズ'), bulkAutoCloseSlot,
-      h('button', { type: 'button', onclick: () => { const v = bulkAutoClose?.read(); if (v !== undefined) bulkApply({ autoClose: v }, '自動クローズ'); } }, '適用')),
+    h('span', { class: 'mg-bulk-title' }, uiText("チェックした行を一括変更:")),
+    h('span', { class: 'group' }, h('span', { class: 'label' }, uiText("セッション")), bulkSession,
+      h('button', { type: 'button', onclick: () => { if (!bulkSession.value) { toast(uiText("セッションを選んでください"), true); return; } bulkApply({ sessionId: bulkSession.value }, uiText("セッション")); } }, uiText("適用"))),
+    h('span', { class: 'group' }, h('span', { class: 'label' }, uiText("色")), bulkColor,
+      h('button', { type: 'button', onclick: () => { if (!bulkColor.value) { toast(uiText("色を選んでください"), true); return; } bulkApply({ color: bulkColor.value }, uiText("色")); } }, uiText("適用"))),
+    h('span', { class: 'group' }, h('span', { class: 'label' }, uiText("自動クローズ")), bulkAutoCloseSlot,
+      h('button', { type: 'button', onclick: () => { const v = bulkAutoClose?.read(); if (v !== undefined) bulkApply({ autoClose: v }, uiText("自動クローズ")); } }, uiText("適用"))),
     h('span', { class: 'grow' }),
     bulkDeleteBtn,
   );
-  root.replaceChildren(
-    h('div', { class: 'row' }, h('label', { class: 'check' }, allCheck, ' すべて選択'), count),
+  replaceChildren(root,
+    h('div', { class: 'row' }, h('label', { class: 'check' }, allCheck, uiText(" すべて選択")), count),
     list,
     bulk,
   );
@@ -246,10 +247,10 @@ export function createWorkspaceManager(root, ctx) {
 
   function bulkApply(patch, label) {
     const ids = targets();
-    if (!ids.length) { toast('変更する行にチェックを入れてください', true); return; }
+    if (!ids.length) { toast(uiText("変更する行にチェックを入れてください"), true); return; }
     attempt(async () => {
       const res = await call('updateWorkspaces', { ids, patch });
-      toast(`${res.count} 件の${label}を変更しました${res.cookieSession ? '（Cookie を入れ替えてページを読み込み直しました）' : ''}`);
+      toast(uiText("{p0} 件の{p1}を変更しました{p2}", {p0: (res.count), p1: (label), p2: (res.cookieSession ? uiText("（Cookie を入れ替えてページを読み込み直しました）") : '')}));
     });
   }
 
@@ -264,7 +265,7 @@ export function createWorkspaceManager(root, ctx) {
   function syncBulk() {
     const n = targets().length;
     const total = ctx.getData().state?.workspaceOrder.length || 0;
-    count.textContent = n ? `${n} 件を選択中` : 'チェックした行に下の一括変更を適用します';
+    setText(count, n ? uiText("{p0} 件を選択中", {p0: (n)}) : uiText("チェックした行に下の一括変更を適用します"));
     allCheck.checked = total > 0 && n === total;
     allCheck.indeterminate = n > 0 && n < total;
     for (const el of bulk.querySelectorAll('button, select, input')) el.disabled = !n;
@@ -278,45 +279,45 @@ export function createWorkspaceManager(root, ctx) {
     const openIn = windowOf(bindings, ws.id);
     const save = (patch) => attempt(() => call('updateWorkspace', { id: ws.id, patch }));
 
-    const grip = h('span', { class: 'mg-grip', title: 'ドラッグで並び替え' }, '⋮⋮');
-    const check = h('input', { type: 'checkbox', checked: selected.has(ws.id), title: '一括変更の対象にする' });
+    const grip = h('span', { class: 'mg-grip', title: uiText("ドラッグで並び替え") }, '⋮⋮');
+    const check = h('input', { type: 'checkbox', checked: selected.has(ws.id), title: uiText("一括変更の対象にする") });
     check.addEventListener('change', () => {
       if (check.checked) selected.add(ws.id); else selected.delete(ws.id);
       syncBulk();
     });
     const look = h('button', {
-      type: 'button', class: 'icon mg-look', title: '色・アイコンを変更',
+      type: 'button', class: 'icon mg-look', title: uiText("色・アイコンを変更"),
       onclick: () => { expandId = expandId === ws.id ? null : ws.id; render(true); },
     }, wsIcon(ws), h('span', { class: 'muted small' }, expandId === ws.id ? '▲' : '▼'));
-    const name = h('input', { type: 'text', class: 'mg-name', value: ws.name, title: '名前（Enter または他へ移動で保存）' });
+    const name = h('input', { type: 'text', class: 'mg-name', value: ws.name, title: uiText("名前（Enter または他へ移動で保存）") });
     name.addEventListener('change', () => {
       const v = name.value.trim();
       if (!v) { name.value = ws.name; return; }
       save({ name: v });
     });
-    const session = h('select', { class: 'mg-session', title: '使うセッション' }, state.sessionOrder.map((id) =>
+    const session = h('select', { class: 'mg-session', title: uiText("使うセッション") }, state.sessionOrder.map((id) =>
       h('option', { value: id, selected: id === ws.sessionId }, state.sessions[id].name)));
     session.addEventListener('change', () => {
       session.blur();
       attempt(async () => {
         const res = await call('updateWorkspace', { id: ws.id, patch: { sessionId: session.value } });
-        if (res?.cookieSession) toast(`「${ws.name}」のセッションを変え、Cookie を入れ替えてページを読み込み直しました`);
+        if (res?.cookieSession) toast(uiText("「{p0}」のセッションを変え、Cookie を入れ替えてページを読み込み直しました", {p0: (ws.name)}));
       });
     });
     const ac = autoCloseControls(state.settings, ws, { onSave: (autoClose) => save({ autoClose }) });
-    const status = here ? h('span', { class: 'badge here', title: 'このウィンドウで開いています' }, 'ここ')
-      : openIn != null ? h('span', { class: 'badge', title: '別のウィンドウで開いています' }, '開いている') : null;
-    const del = confirmButton('削除', '本当に削除？', () => attempt(async () => {
+    const status = here ? h('span', { class: 'badge here', title: uiText("このウィンドウで開いています") }, uiText("ここ"))
+      : openIn != null ? h('span', { class: 'badge', title: uiText("別のウィンドウで開いています") }, uiText("開いている")) : null;
+    const del = confirmButton(uiText("削除"), uiText("本当に削除？"), () => attempt(async () => {
       await call('deleteWorkspace', { id: ws.id });
       selected.delete(ws.id);
-      toast(`「${ws.name}」を削除しました（ブックマークフォルダは残っています）`);
-    }), { class: 'danger icon', title: '削除（ブックマークフォルダは残ります）' });
+      toast(uiText("「{p0}」を削除しました（ブックマークフォルダは残っています）", {p0: (ws.name)}));
+    }), { class: 'danger icon', title: uiText("削除（ブックマークフォルダは残ります）") });
 
     const el = h('div', { class: `mg-row${selected.has(ws.id) ? ' sel' : ''}` },
       grip, check,
-      h('span', { class: 'badge hotkey', title: '管理パネルの一覧での番号' }, workspaceHotkey(index) || String(index + 1)),
+      h('span', { class: 'badge hotkey', title: uiText("管理パネルの一覧での番号") }, workspaceHotkey(index) || String(index + 1)),
       look, name, session, ac.box,
-      h('span', { class: 'muted small mg-tabs', title: '保存されているタブ数' }, `${ws.tabs.length} タブ`),
+      h('span', { class: 'muted small mg-tabs', title: uiText("保存されているタブ数") }, uiText("{p0} タブ", {p0: (ws.tabs.length)})),
       status, del,
     );
     makeWorkspaceDraggable(el, ws.id, { handle: grip });
@@ -329,8 +330,8 @@ export function createWorkspaceManager(root, ctx) {
     })));
     const icon = iconPicker(ws.icon, (v) => save({ icon: v }));
     return [el, h('div', { class: 'mg-expand' },
-      h('div', { class: 'row' }, h('span', { class: 'edit-label' }, '色'), colors),
-      h('div', { class: 'row' }, h('span', { class: 'edit-label' }, 'アイコン'), icon),
+      h('div', { class: 'row' }, h('span', { class: 'edit-label' }, uiText("色")), colors),
+      h('div', { class: 'row' }, h('span', { class: 'edit-label' }, uiText("アイコン")), icon),
     )];
   }
 
@@ -343,16 +344,16 @@ export function createWorkspaceManager(root, ctx) {
     if (expandId && !state.workspaces[expandId]) expandId = null;
     // 一括変更のセッション候補（選択中の値は保つ）
     const keep = bulkSession.value;
-    bulkSession.replaceChildren(h('option', { value: '' }, 'セッションを選択…'),
+    replaceChildren(bulkSession, h('option', { value: '' }, uiText("セッションを選択…")),
       ...state.sessionOrder.map((id) => h('option', { value: id }, state.sessions[id].name)));
     bulkSession.value = state.sessions[keep] ? keep : '';
     // 自動クローズは入力中の値を保つため 1 度だけ作る
     if (!bulkAutoClose) {
       bulkAutoClose = autoCloseControls(state.settings, { autoClose: null }, { onSave: () => {}, blurOnChange: false });
-      bulkAutoCloseSlot.replaceChildren(bulkAutoClose.box);
+      replaceChildren(bulkAutoCloseSlot, bulkAutoClose.box);
     }
-    if (!state.workspaceOrder.length) list.replaceChildren(h('div', { class: 'empty' }, 'ワークスペースがありません。管理パネルの ＋ から作成してください。'));
-    else list.replaceChildren(...state.workspaceOrder.flatMap((id, index) => row(state.workspaces[id], index)));
+    if (!state.workspaceOrder.length) replaceChildren(list, h('div', { class: 'empty' }, uiText("ワークスペースがありません。管理パネルの ＋ から作成してください。")));
+    else replaceChildren(list, ...state.workspaceOrder.flatMap((id, index) => row(state.workspaces[id], index)));
     syncBulk();
   }
   root.addEventListener('focusout', () => { if (pending) setTimeout(() => render(), 0); });
@@ -368,18 +369,18 @@ export function createWorkspaceManager(root, ctx) {
 export function cookieConsentDialog() {
   return new Promise((resolve) => {
     let agreed = false;
-    const agree = h('button', { type: 'button', class: 'primary' }, '同意して権限を許可');
-    const cancel = h('button', { type: 'button' }, 'キャンセル');
+    const agree = h('button', { type: 'button', class: 'primary' }, uiText("同意して権限を許可"));
+    const cancel = h('button', { type: 'button' }, uiText("キャンセル"));
     const dlg = h('dialog', { class: 'consent' },
-      h('div', { class: 'dlg-head' }, '🍪 セッションごとに Cookie を分けるための確認'),
+      h('div', { class: 'dlg-head' }, uiText("🍪 セッションごとに Cookie を分けるための確認")),
       h('div', { class: 'dlg-body' },
-        h('p', {}, 'セッションごとにログイン状態を分けるには、すべてのサイトの Cookie を読み書きする権限が必要です。「同意して権限を許可」を押すと、続けて Chrome の確認が出ます。'),
+        h('p', {}, uiText("セッションごとにログイン状態を分けるには、すべてのサイトの Cookie を読み書きする権限が必要です。「同意して権限を許可」を押すと、続けて Chrome の確認が出ます。")),
         h('ul', { class: 'consent-list' },
-          h('li', {}, h('b', {}, '何をするか: '), '別のセッションのワークスペースに切り替えるとき、今 Chrome に入っているすべてのサイトの Cookie（ログイン状態）を退避して消し、切替先のセッションの Cookie を復元します。ページの内容は読まず、スクリプトも挿入しません。'),
-          h('li', {}, h('b', {}, 'どこに保存するか: '), '退避した Cookie は、この拡張の保存領域（お使いのブラウザ内）に AES-GCM で暗号化して保存します。鍵はこのブラウザの外に出せない形で保持します。外部のサーバーには送信せず、「同期」やエクスポートにも含めません。'),
-          h('li', {}, h('b', {}, 'どう消せるか: '), '設定・管理の「セッション」にある「退避した Cookie を削除」、セッションの削除、chrome://extensions での「サイトへのアクセス」の取り消しでいつでも消せます。拡張を削除すると鍵ごとすべて消えます。'),
+          h('li', {}, h('b', {}, uiText("何をするか: ")), uiText("別のセッションのワークスペースに切り替えるとき、今 Chrome に入っているすべてのサイトの Cookie（ログイン状態）を退避して消し、切替先のセッションの Cookie を復元します。ページの内容は読まず、スクリプトも挿入しません。")),
+          h('li', {}, h('b', {}, uiText("どこに保存するか: ")), uiText("退避した Cookie は、この拡張の保存領域（お使いのブラウザ内）に AES-GCM で暗号化して保存します。鍵はこのブラウザの外に出せない形で保持します。外部のサーバーには送信せず、「同期」やエクスポートにも含めません。")),
+          h('li', {}, h('b', {}, uiText("どう消せるか: ")), uiText("設定・管理の「セッション」にある「退避した Cookie を削除」、セッションの削除、chrome://extensions での「サイトへのアクセス」の取り消しでいつでも消せます。拡張を削除すると鍵ごとすべて消えます。")),
         ),
-        h('p', { class: 'muted small' }, 'Chrome 全体で同時に使えるセッションは 1 つで、切替は他のウィンドウにも及びます。localStorage などサイト側の他の保存領域は分けません。'),
+        h('p', { class: 'muted small' }, uiText("Chrome 全体で同時に使えるセッションは 1 つで、切替は他のウィンドウにも及びます。localStorage などサイト側の他の保存領域は分けません。")),
       ),
       h('div', { class: 'dlg-foot' }, cancel, agree),
     );
@@ -409,7 +410,7 @@ export async function ensureCookiePermission({
   const { state, bindings } = getData();
   const sessionId = state.workspaces[bindings[getWindowId()]]?.sessionId;
   const res = await call('grantCookieIsolation', { sessionId });
-  if (res.adopted) toast(`今 Chrome に入っている Cookie はセッション「${state.sessions[res.cookieSessionId]?.name || ''}」のものとして扱います`);
+  if (res.adopted) toast(uiText("今 Chrome に入っている Cookie はセッション「{p0}」のものとして扱います", {p0: (state.sessions[res.cookieSessionId]?.name || '')}));
   return true;
 }
 
@@ -422,17 +423,17 @@ export function createSessionManager(root, ctx) {
   const note = h('div', { class: 'muted small grow' });
   const grantSlot = h('span');
   const list = h('div', { class: 'sess-list' });
-  const nameInput = h('input', { type: 'text', class: 'grow', placeholder: '新しいセッション名（例: AWS 開発アカウント）', autocomplete: 'off' });
-  const form = h('form', { class: 'row' }, nameInput, h('button', { type: 'submit' }, '追加'));
-  root.replaceChildren(h('div', { class: 'row sess-cookie' }, note, grantSlot), list, form);
+  const nameInput = h('input', { type: 'text', class: 'grow', placeholder: uiText("新しいセッション名（例: AWS 開発アカウント）"), autocomplete: 'off' });
+  const form = h('form', { class: 'row' }, nameInput, h('button', { type: 'submit' }, uiText("追加")));
+  replaceChildren(root, h('div', { class: 'row sess-cookie' }, note, grantSlot), list, form);
 
   const grantButton = () => h('button', {
-    type: 'button', class: 'primary', title: 'Cookie を読み書きする権限（すべてのサイト）の確認が出ます',
+    type: 'button', class: 'primary', title: uiText("Cookie を読み書きする権限（すべてのサイト）の確認が出ます"),
     onclick: () => attempt(async () => {
-      if (!(await ensureCookiePermission(ctx))) { toast('権限が許可されなかったため、Cookie は分かれません', true); return; }
+      if (!(await ensureCookiePermission(ctx))) { toast(uiText("権限が許可されなかったため、Cookie は分かれません"), true); return; }
       await render();
     }),
-  }, '権限を許可する');
+  }, uiText("権限を許可する"));
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -441,12 +442,12 @@ export function createSessionManager(root, ctx) {
     attempt(async () => {
       // セッションを分ける＝Cookie を分けるので、2 つ目以降のセッションを作る前に権限を求める（拒否されたら作らない）
       if (!(await ensureCookiePermission(ctx))) {
-        toast('Cookie を読み書きする権限が許可されなかったため、セッションを追加しませんでした（同意と許可の両方が必要です）', true);
+        toast(uiText("Cookie を読み書きする権限が許可されなかったため、セッションを追加しませんでした（同意と許可の両方が必要です）"), true);
         return;
       }
       nameInput.value = '';
       await call('createSession', { name });
-      toast(`セッション「${name}」を追加しました`);
+      toast(uiText("セッション「{p0}」を追加しました", {p0: (name)}));
     });
   });
 
@@ -459,42 +460,42 @@ export function createSessionManager(root, ctx) {
     try { cookie = await call('getCookieStatus', { live: false }); } catch { /* 表示だけなので無視 */ }
     const isolating = !!cookie?.permitted;
     const multi = state.sessionOrder.length > 1;
-    note.textContent = isolating
-      ? `別のセッションのワークスペースに切り替えると、Cookie（ログイン状態）をそのセッションのものに入れ替えます（全ウィンドウに及びます）。今 Chrome に入っている Cookie: 「${state.sessions[cookie.cookieSessionId]?.name || '不明'}」`
+    setText(note, isolating
+      ? uiText("別のセッションのワークスペースに切り替えると、Cookie（ログイン状態）をそのセッションのものに入れ替えます（全ウィンドウに及びます）。今 Chrome に入っている Cookie: 「{p0}」", {p0: (state.sessions[cookie.cookieSessionId]?.name || uiText("不明"))})
       : (multi
-        ? 'Cookie を読み書きする権限が許可されていないため、今はセッション間で Cookie が分かれていません。「権限を許可する」で許可してください。'
-        : 'セッションを追加すると、Cookie を読み書きする権限（すべてのサイト）の確認が出ます。許可すると、セッションごとにログイン状態が分かれます。');
-    grantSlot.replaceChildren(cookie && !isolating && multi ? grantButton() : '');
+        ? uiText("Cookie を読み書きする権限が許可されていないため、今はセッション間で Cookie が分かれていません。「権限を許可する」で許可してください。")
+        : uiText("セッションを追加すると、Cookie を読み書きする権限（すべてのサイト）の確認が出ます。許可すると、セッションごとにログイン状態が分かれます。")));
+    replaceChildren(grantSlot, cookie && !isolating && multi ? grantButton() : '');
     const cookieBadge = (id) => {
       if (!isolating) return null;
-      if (id === cookie.cookieSessionId) return h('span', { class: 'badge here', title: '今 Chrome に入っている Cookie はこのセッションのものです' }, '🍪 今の Cookie');
+      if (id === cookie.cookieSessionId) return h('span', { class: 'badge here', title: uiText("今 Chrome に入っている Cookie はこのセッションのものです") }, uiText("🍪 今の Cookie"));
       const jar = cookie.jars[id];
-      return h('span', { class: 'muted small', title: jar ? `退避した Cookie: ${jar.count} 件（${new Date(jar.savedAt).toLocaleString()}）` : '退避した Cookie はありません（切り替えると未ログインの状態から始まります）' },
-        jar ? `🍪 ${jar.count}` : '🍪 なし');
+      return h('span', { class: 'muted small', title: jar ? uiText("退避した Cookie: {p0} 件（{p1}）", {p0: (jar.count), p1: (localizedValue(() => new Date(jar.savedAt).toLocaleString(getLanguage())))}) : uiText("退避した Cookie はありません（切り替えると未ログインの状態から始まります）") },
+        jar ? `🍪 ${jar.count}` : uiText("🍪 なし"));
     };
-    list.replaceChildren(...state.sessionOrder.map((id) => {
+    replaceChildren(list, ...state.sessionOrder.map((id) => {
       const s = state.sessions[id];
       const users = workspacesUsingSession(state, id);
-      const name = h('input', { type: 'text', value: s.name, title: '名前を変更（Enter または他へ移動で保存）' });
+      const name = h('input', { type: 'text', value: s.name, title: uiText("名前を変更（Enter または他へ移動で保存）") });
       name.addEventListener('change', () => attempt(() => call('renameSession', { id, name: name.value })));
       return h('div', { class: 'sess-row' },
         name,
         cookieBadge(id),
-        h('span', { class: 'muted small', title: users.map((w) => state.workspaces[w].name).join('\n') || 'このセッションを使うワークスペースはありません' },
+        h('span', { class: 'muted small', title: users.map((w) => state.workspaces[w].name).join('\n') || uiText("このセッションを使うワークスペースはありません") },
           `${users.length} WS`),
         h('button', {
-          type: 'button', disabled: !users.length, title: 'このセッションを使う全ワークスペースをそれぞれ別ウィンドウで開く',
+          type: 'button', disabled: !users.length, title: uiText("このセッションを使う全ワークスペースをそれぞれ別ウィンドウで開く"),
           onclick: () => attempt(async () => {
             const wid = await call('openSessionWindows', { sessionId: id });
             if (wid != null) await chrome.windows.update(wid, { focused: true }).catch(() => {});
           }),
-        }, '全て開く'),
-        confirmButton('削除', '本当に削除？', () => attempt(async () => {
+        }, uiText("全て開く")),
+        confirmButton(uiText("削除"), uiText("本当に削除？"), () => attempt(async () => {
           const res = await call('deleteSession', { id });
           toast(res?.cookieSession
-            ? `削除しました（Cookie をセッション「${res.cookieSession.toName}」に入れ替え、ワークスペースも付け替えました）`
-            : '削除しました（使っていたワークスペースは別のセッションに付け替えました）');
-        }), { disabled: state.sessionOrder.length <= 1, title: state.sessionOrder.length <= 1 ? '最後のセッションは削除できません' : (isolating ? '削除（ワークスペースは消えません。退避した Cookie は消えます）' : '削除（ワークスペースは消えません）') }),
+            ? uiText("削除しました（Cookie をセッション「{p0}」に入れ替え、ワークスペースも付け替えました）", {p0: (res.cookieSession.toName)})
+            : uiText("削除しました（使っていたワークスペースは別のセッションに付け替えました）"));
+        }), { disabled: state.sessionOrder.length <= 1, title: state.sessionOrder.length <= 1 ? uiText("最後のセッションは削除できません") : (isolating ? uiText("削除（ワークスペースは消えません。退避した Cookie は消えます）") : uiText("削除（ワークスペースは消えません）")) }),
       );
     }));
   }
@@ -507,7 +508,7 @@ export function createSessionManager(root, ctx) {
 function entryRow({ url, title, sub, extra, onOpen, onClose, closeTitle }) {
   return h('div', { class: 'entry', title: url || '', onclick: () => onOpen && attempt(onOpen) },
     url ? fav(url) : null,
-    h('span', { class: 'title ellipsis' }, title || url || '（無題）'),
+    h('span', { class: 'title ellipsis' }, title || url || uiText("（無題）")),
     sub ? h('span', { class: 'host muted small ellipsis' }, sub) : null,
     extra || null,
     onClose ? h('button', {
@@ -534,14 +535,14 @@ async function openUrlIn(url, wsId, bindings, windowId) {
  */
 export function createClosedTabsView(root, ctx) {
   let items = [];
-  const search = h('input', { type: 'search', class: 'grow', placeholder: 'タイトル・URL で絞り込み', autocomplete: 'off' });
-  const clearBtn = confirmButton('すべて削除', '本当に削除？', () => attempt(async () => {
+  const search = h('input', { type: 'search', class: 'grow', placeholder: uiText("タイトル・URL で絞り込み"), autocomplete: 'off' });
+  const clearBtn = confirmButton(uiText("すべて削除"), uiText("本当に削除？"), () => attempt(async () => {
     await call('clearClosedTabs');
-    toast('閉じたタブの履歴を削除しました');
-  }), { title: '閉じたタブの履歴をすべて削除' });
+    toast(uiText("閉じたタブの履歴を削除しました"));
+  }), { title: uiText("閉じたタブの履歴をすべて削除") });
   const list = h('div', { class: 'closed-list' });
-  root.replaceChildren(
-    h('div', { class: 'muted small' }, `自動クローズで閉じたタブです。最大 ${CLOSED_TABS_MAX} 件（古いものから消えます）。行をクリックすると、そのワークスペースのウィンドウ（開いていなければこのウィンドウ）で開き直します。`),
+  replaceChildren(root,
+    h('div', { class: 'muted small' }, uiText("自動クローズで閉じたタブです。最大 {p0} 件（古いものから消えます）。行をクリックすると、そのワークスペースのウィンドウ（開いていなければこのウィンドウ）で開き直します。", {p0: (CLOSED_TABS_MAX)})),
     h('div', { class: 'row' }, search, clearBtn),
     list,
   );
@@ -559,7 +560,7 @@ export function createClosedTabsView(root, ctx) {
     const q = search.value;
     const shown = items.filter((e) => matchesQuery(`${e.title || ''} ${e.url || ''}`, q));
     if (!shown.length) {
-      list.replaceChildren(h('div', { class: 'empty' }, items.length ? '一致する閉じたタブはありません' : '自動で閉じたタブはありません'));
+      replaceChildren(list, h('div', { class: 'empty' }, items.length ? uiText("一致する閉じたタブはありません") : uiText("自動で閉じたタブはありません")));
       return;
     }
     const now = Date.now();
@@ -569,7 +570,7 @@ export function createClosedTabsView(root, ctx) {
       const l = closedDayLabel(e.closedAt, now);
       if (l !== label) {
         label = l;
-        nodes.push(h('div', { class: 'group-label' }, l));
+        nodes.push(h('div', { class: 'group-label' }, localizedValue(() => closedDayLabel(e.closedAt, now))));
       }
       const wsName = state?.workspaces[e.workspaceId]?.name || e.workspaceName;
       nodes.push(entryRow({
@@ -577,15 +578,15 @@ export function createClosedTabsView(root, ctx) {
         title: e.title,
         sub: hostOf(e.url),
         extra: [
-          wsName ? h('span', { class: 'ws-session', title: `ワークスペース: ${wsName}` }, wsName) : null,
-          h('span', { class: 'time muted small', title: new Date(e.closedAt).toLocaleString() }, formatClockTime(e.closedAt)),
+          wsName ? h('span', { class: 'ws-session', title: uiText("ワークスペース: {p0}", {p0: (wsName)}) }, wsName) : null,
+          h('span', { class: 'time muted small', title: localizedValue(() => new Date(e.closedAt).toLocaleString(getLanguage())) }, formatClockTime(e.closedAt)),
         ],
         onOpen: () => reopen(e),
         onClose: () => call('removeClosedTab', { id: e.id }),
-        closeTitle: '履歴から削除',
+        closeTitle: uiText("履歴から削除"),
       }));
     }
-    list.replaceChildren(...nodes);
+    replaceChildren(list, ...nodes);
   }
 
   return { render(next) { items = Array.isArray(next) ? next : []; draw(); } };

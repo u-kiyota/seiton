@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja">
+<html lang="ja" data-i18n-pending>
 <head>
   <meta charset="utf-8">
   <title>seiton 設定・管理</title>
@@ -120,6 +120,16 @@
       <section class="sec" id="sec-display" data-section="display">
         <h2>表示・操作</h2>
         <p class="sec-lead">ウィンドウの見た目と、ワークスペースの切替方法の設定です。</p>
+        <div class="field">
+          <label for="language">表示言語
+            <select id="language">
+              <option value="auto">自動（ブラウザの言語）</option>
+              <option value="ja" lang="ja" translate="no">日本語</option>
+              <option value="en" lang="en" translate="no">English</option>
+            </select>
+          </label>
+          <div class="desc">言語の変更は開いている画面にも反映されます。名前や入力中の内容は変更しません。</div>
+        </div>
         <div class="field">
           <label>既定の切替方法
             <select id="switchMode">

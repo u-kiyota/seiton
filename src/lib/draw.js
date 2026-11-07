@@ -1,16 +1,17 @@
 // ワークスペースのアイコン画像（色の角丸四角＋絵文字 / 名前の頭文字）を描く。
 // サービスワーカー（ツールバーアイコン）とページ（ワークスペースタブの favicon）の両方から使うので chrome.* には触れない。
 // OffscreenCanvas はどちらでも使える。
+import { t } from './i18n.js';
 
 /**
  * label: indicatorLabel() の戻り値（{ text, emoji, color }）。size: 一辺の px。
  * 戻り値は ImageData。OffscreenCanvas が無い・2d context が取れない環境では例外を投げる（呼び出し側で既定アイコンにする）
  */
 export function drawIndicatorIcon(label, size) {
-  if (typeof OffscreenCanvas === 'undefined') throw new Error('OffscreenCanvas が使えません');
+  if (typeof OffscreenCanvas === 'undefined') throw new Error(t('OffscreenCanvas が使えません'));
   const canvas = new OffscreenCanvas(size, size);
   const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('OffscreenCanvas の 2d context が使えません');
+  if (!ctx) throw new Error(t('OffscreenCanvas の 2d context が使えません'));
   ctx.clearRect(0, 0, size, size);
   ctx.fillStyle = label.color;
   ctx.beginPath();

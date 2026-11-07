@@ -1,3 +1,4 @@
+import { uiText, setText, setTranslatedAttribute, replaceChildren, languageOnlyChange, getLanguage, localizedValue, commandLabel, translateText } from './i18n.js';
 import {
   tabUrl, normalizeUrlForMatch, isManagerUrl, isWorkspaceTabUrl, isFileUrl, matchesQuery,
   TAB_DRAG_TYPE, parseTabDragData, isBookmarkableUrl, workspaceHotkey, hotkeyToIndex,
@@ -101,7 +102,7 @@ function keyMode(e) {
 function renderHint() {
   const k = switchKeyHints(defaultSwitchMode());
   const s = SWITCH_MODE_SHORT;
-  $('searchHint').textContent = `↑↓ 選択 / Enter ワークスペース→${s[k.enter]}・URL→開く / Shift+Enter ワークスペース→${s[k.shift]}・URL→このウィンドウ / Ctrl+Enter ワークスペース→${s[k.ctrl]} / Esc 検索を消す・閉じる / 1〜9/0 ${s[k.enter]}（Shift で ${s[k.shift]}）`;
+  setText($('searchHint'), uiText("↑↓ 選択 / Enter ワークスペース→{p0}・URL→開く / Shift+Enter ワークスペース→{p1}・URL→このウィンドウ / Ctrl+Enter ワークスペース→{p2} / Esc 検索を消す・閉じる / 1〜9/0 {p3}（Shift で {p4}）", {p0: (uiText(s[k.enter])), p1: (uiText(s[k.shift])), p2: (uiText(s[k.ctrl])), p3: (uiText(s[k.enter])), p4: (uiText(s[k.shift]))}));
 }
 
 function sessionName(id) {
@@ -160,7 +161,7 @@ function openWorkspaceBy(id, mode) {
 function endParked(id) {
   return attempt(async () => {
     const r = await call('closeParked', { workspaceId: id });
-    toast(`休止を終了し、${r.closed} 個のタブを閉じました`);
+    toast(uiText("休止を終了し、{p0} 個のタブを閉じました", {p0: (r.closed)}));
   });
 }
 
@@ -208,8 +209,8 @@ function renderDetailHead() {
 
   if (!bindings[windowId]) {
     parts.push(h('div', { class: 'row' },
-      h('span', { class: 'muted small grow' }, 'このウィンドウは未割り当てです。今開いているタブを新しいワークスペースとして保存できます。'),
-      h('button', { type: 'button', onclick: () => openCreateDialog({ keepTabs: true }) }, '今のタブをワークスペースとして保存'),
+      h('span', { class: 'muted small grow' }, uiText("このウィンドウは未割り当てです。今開いているタブを新しいワークスペースとして保存できます。")),
+      h('button', { type: 'button', onclick: () => openCreateDialog({ keepTabs: true }) }, uiText("今のタブをワークスペースとして保存")),
     ));
   }
 
@@ -220,34 +221,34 @@ function renderDetailHead() {
     parts.push(h('div', { class: 'row' },
       wsIcon(ws, 'lg'),
       h('span', { class: 'grow ellipsis' }, h('b', {}, ws.name)),
-      h('span', { class: 'ws-session', title: '使うセッション' }, sessionName(ws.sessionId)),
-      here ? h('span', { class: 'badge here' }, 'このウィンドウ')
-        : openIn != null ? h('span', { class: 'badge' }, '別ウィンドウ')
-          : parkedIn ? h('span', { class: 'badge parked', title: '休止中: タブは閉じずに折りたたんだグループ「⏸ …」に残っています' },
-            parkedIn.windowId === windowId ? 'このウィンドウで休止中' : '別ウィンドウで休止中')
-            : h('span', { class: 'badge' }, '未オープン'),
+      h('span', { class: 'ws-session', title: uiText("使うセッション") }, sessionName(ws.sessionId)),
+      here ? h('span', { class: 'badge here' }, uiText("このウィンドウ"))
+        : openIn != null ? h('span', { class: 'badge' }, uiText("別ウィンドウ"))
+          : parkedIn ? h('span', { class: 'badge parked', title: uiText("休止中: タブは閉じずに折りたたんだグループ「⏸ …」に残っています") },
+            parkedIn.windowId === windowId ? uiText("このウィンドウで休止中") : uiText("別ウィンドウで休止中"))
+            : h('span', { class: 'badge' }, uiText("未オープン")),
       here ? null : h('button', {
         class: 'primary', type: 'button',
-        title: openIn != null ? '開いているウィンドウへ移動'
-          : parkedIn ? '休止グループを解いて再開する（今のワークスペースのタブは閉じて保存）'
-            : 'このウィンドウのタブを入れ替えて開く',
+        title: openIn != null ? uiText("開いているウィンドウへ移動")
+          : parkedIn ? uiText("休止グループを解いて再開する（今のワークスペースのタブは閉じて保存）")
+            : uiText("このウィンドウのタブを入れ替えて開く"),
         onclick: () => switchHere(ws.id),
-      }, openIn != null ? 'そのウィンドウへ' : parkedIn ? '再開' : 'このウィンドウで開く'),
+      }, openIn != null ? uiText("そのウィンドウへ") : parkedIn ? uiText("再開") : uiText("このウィンドウで開く")),
       here || openIn != null ? null : h('button', {
         type: 'button',
-        title: '今のワークスペースのタブを閉じずに休止（折りたたんだグループ）にして残し、このワークスペースを開く',
+        title: uiText("今のワークスペースのタブを閉じずに休止（折りたたんだグループ）にして残し、このワークスペースを開く"),
         onclick: () => switchHere(ws.id, { park: true }),
-      }, '⏸ 休止して開く'),
+      }, uiText("⏸ 休止して開く")),
       h('button', {
-        class: 'icon', type: 'button', title: '新しいウィンドウで開く',
+        class: 'icon', type: 'button', title: uiText("新しいウィンドウで開く"),
         onclick: () => openNewWindow(ws.id),
       }, '⧉'),
       parkedIn ? h('button', {
-        type: 'button', title: '休止を終了: 休止グループのタブを閉じる（閉じる直前の内容は保存されます）',
+        type: 'button', title: uiText("休止を終了: 休止グループのタブを閉じる（閉じる直前の内容は保存されます）"),
         onclick: () => endParked(ws.id),
-      }, '休止を終了') : null,
+      }, uiText("休止を終了")) : null,
       h('button', {
-        class: 'icon', type: 'button', title: '編集',
+        class: 'icon', type: 'button', title: uiText("編集"),
         onclick: () => {
           editingId = editingId === ws.id ? null : ws.id;
           render();
@@ -255,14 +256,14 @@ function renderDetailHead() {
         },
       }, editingId === ws.id ? '▲' : '✎'),
       here ? h('button', {
-        class: 'icon', type: 'button', title: 'ワークスペースの割り当てを外す（タブはそのまま残ります）',
+        class: 'icon', type: 'button', title: uiText("ワークスペースの割り当てを外す（タブはそのまま残ります）"),
         onclick: () => attempt(() => call('detachWindow', { windowId })),
-      }, '切り離す') : null,
+      }, uiText("切り離す")) : null,
     ));
   }
-  box.replaceChildren(...parts);
+  replaceChildren(box, ...parts);
   // replaceChildren(null) は "null" という文字列ノードになるので、要素があるときだけ渡す
-  $('editor').replaceChildren(...(ws && editingId === ws.id ? [renderEditor(ws)] : []));
+  replaceChildren($('editor'), ...(ws && editingId === ws.id ? [renderEditor(ws)] : []));
 }
 
 function renderEditor(ws) {
@@ -282,15 +283,15 @@ function renderEditor(ws) {
   session.addEventListener('change', () => attempt(async () => {
     const res = await call('updateWorkspace', { id: ws.id, patch: { sessionId: session.value } });
     toast(res?.cookieSession
-      ? `セッション「${state.sessions[session.value].name}」を使うようにし、Cookie を入れ替えてページを読み込み直しました`
-      : `セッション「${state.sessions[session.value].name}」を使うようにしました`);
+      ? uiText("セッション「{p0}」を使うようにし、Cookie を入れ替えてページを読み込み直しました", {p0: (state.sessions[session.value].name)})
+      : uiText("セッション「{p0}」を使うようにしました", {p0: (state.sessions[session.value].name)}));
   }));
 
   const folderSel = h('select', { class: 'grow' },
-    h('option', { value: '' }, '（未接続）'),
+    h('option', { value: '' }, uiText("（未接続）")),
     (folders || []).map((f) => h('option', { value: f.id, selected: f.id === ws.bookmarkFolderId }, f.path)));
   if (ws.bookmarkFolderId && !(folders || []).some((f) => f.id === ws.bookmarkFolderId)) {
-    folderSel.append(h('option', { value: ws.bookmarkFolderId, selected: true }, '（読み込み中…）'));
+    folderSel.append(h('option', { value: ws.bookmarkFolderId, selected: true }, uiText("（読み込み中…）")));
   }
   folderSel.addEventListener('change', () => attempt(async () => {
     await call('linkFolder', { workspaceId: ws.id, folderId: folderSel.value });
@@ -303,19 +304,19 @@ function renderEditor(ws) {
   const acDaysValue = ac?.days ?? globalAc.days;
   const saveAutoClose = (autoClose) => attempt(() => call('updateWorkspace', { id: ws.id, patch: { autoClose } }));
   const acMode = h('select', { class: 'grow' },
-    h('option', { value: '', selected: !ac }, `設定に従う（${globalAc.enabled ? `有効・${formatAutoCloseDuration(globalAc.days)}` : '無効'}）`),
-    h('option', { value: 'off', selected: !!ac && !ac.enabled }, '無効'),
-    h('option', { value: 'on', selected: !!ac?.enabled }, '有効'));
+    h('option', { value: '', selected: !ac }, uiText("設定に従う（{p0}）", {p0: (globalAc.enabled ? uiText("有効・{p0}", {p0: (localizedValue(() => { const d = autoCloseDuration(globalAc.days); return d.value + ' ' + uiText(AUTO_CLOSE_UNIT_LABELS[d.unit]); }))}) : uiText("無効"))})),
+    h('option', { value: 'off', selected: !!ac && !ac.enabled }, uiText("無効")),
+    h('option', { value: 'on', selected: !!ac?.enabled }, uiText("有効")));
   acMode.addEventListener('change', () => saveAutoClose(acMode.value ? { enabled: acMode.value === 'on', days: acDaysValue } : null));
   // 期間は「数値 + 単位（分 / 時間 / 日）」で入力し、日数に換算して保存する（最短 15 分）
   const acDur = autoCloseDuration(acDaysValue);
   const acValue = h('input', { type: 'number', min: '1', step: '1', value: String(acDur.value), style: { width: '70px' } });
   const acUnit = h('select', {}, ...Object.entries(AUTO_CLOSE_UNIT_LABELS).map(([v, label]) =>
-    h('option', { value: v, selected: v === acDur.unit }, label)));
+    h('option', { value: v, selected: v === acDur.unit }, uiText(label))));
   const onDurationChange = () => {
     const days = autoCloseDaysFrom(acValue.value, acUnit.value);
     if (days === null) {
-      toast('期間は 15 分以上で入力してください', true);
+      toast(uiText("期間は 15 分以上で入力してください"), true);
       acValue.value = String(acDur.value);
       acUnit.value = acDur.unit;
       return;
@@ -329,37 +330,37 @@ function renderEditor(ws) {
   const idx = order.indexOf(ws.id);
 
   return h('div', { class: 'ws-edit' },
-    h('label', {}, h('span', {}, '名前'), name),
-    h('label', {}, h('span', {}, '色'), colors),
-    h('div', { class: 'row' }, h('span', { class: 'edit-label' }, 'アイコン'), icon),
-    h('label', {}, h('span', {}, '使うセッション'), session),
+    h('label', {}, h('span', {}, uiText("名前")), name),
+    h('label', {}, h('span', {}, uiText("色")), colors),
+    h('div', { class: 'row' }, h('span', { class: 'edit-label' }, uiText("アイコン")), icon),
+    h('label', {}, h('span', {}, uiText("使うセッション")), session),
     cookieInfo && !cookieInfo.permitted && state.sessionOrder.length > 1
-      ? h('div', { class: 'muted small', style: { margin: '-4px 0 4px' } }, 'Cookie を分けるための権限が未許可です。',
-        h('a', { href: '#', onclick: (e) => { e.preventDefault(); openSettings('sessions'); } }, '設定・管理の「セッション」'), 'から許可できます')
+      ? h('div', { class: 'muted small', style: { margin: '-4px 0 4px' } }, uiText("Cookie を分けるための権限が未許可です。"),
+        h('a', { href: '#', onclick: (e) => { e.preventDefault(); openSettings('sessions'); } }, uiText("設定・管理の「セッション」")), uiText("から許可できます"))
       : null,
-    h('label', {}, h('span', {}, 'ブックマーク'), folderSel),
-    h('label', { title: '長期間使っていないタブを自動で閉じるか（設定画面の値をこのワークスペースだけ上書き）' }, h('span', {}, '自動クローズ'), acMode),
-    ac?.enabled ? h('div', { class: 'row' }, h('span', { class: 'edit-label' }, '閉じるまで'), acValue, acUnit, h('span', { class: 'muted small' }, '（最後に使ってから）')) : null,
+    h('label', {}, h('span', {}, uiText("ブックマーク")), folderSel),
+    h('label', { title: uiText("長期間使っていないタブを自動で閉じるか（設定画面の値をこのワークスペースだけ上書き）") }, h('span', {}, uiText("自動クローズ")), acMode),
+    ac?.enabled ? h('div', { class: 'row' }, h('span', { class: 'edit-label' }, uiText("閉じるまで")), acValue, acUnit, h('span', { class: 'muted small' }, uiText("（最後に使ってから）"))) : null,
     h('div', { class: 'row' },
       h('button', {
-        type: 'button', title: 'Workspaces フォルダの下にこのワークスペース用のフォルダを作って接続',
+        type: 'button', title: uiText("Workspaces フォルダの下にこのワークスペース用のフォルダを作って接続"),
         onclick: () => attempt(async () => {
           await call('createFolderFor', { workspaceId: ws.id });
           folders = null;
           bmKey = '';
           await loadFolders();
         }),
-      }, '新しいフォルダを作成して接続'),
+      }, uiText("新しいフォルダを作成して接続")),
     ),
     h('div', { class: 'row' },
       h('button', { type: 'button', disabled: idx <= 0, onclick: () => attempt(() => call('reorderWorkspace', { id: ws.id, toIndex: idx - 1 })) }, '↑'),
       h('button', { type: 'button', disabled: idx >= order.length - 1, onclick: () => attempt(() => call('reorderWorkspace', { id: ws.id, toIndex: idx + 1 })) }, '↓'),
       h('span', { class: 'grow' }),
-      confirmButton('削除', '本当に削除？', () => attempt(async () => {
+      confirmButton(uiText("削除"), uiText("本当に削除？"), () => attempt(async () => {
         await call('deleteWorkspace', { id: ws.id });
         editingId = null;
         if (selectedId === ws.id) selectedId = null;
-        toast('削除しました（ブックマークフォルダは残っています）');
+        toast(uiText("削除しました（ブックマークフォルダは残っています）"));
       })),
     ),
   );
@@ -369,44 +370,45 @@ function renderList() {
   const { state, bindings } = data;
   const list = $('list');
   if (!state.workspaceOrder.length) {
-    list.replaceChildren(h('div', { class: 'empty' }, 'ワークスペースがありません。右上の ＋ から作成してください。'));
+    replaceChildren(list, h('div', { class: 'empty' }, uiText("ワークスペースがありません。右上の ＋ から作成してください。")));
     return;
   }
   const showSession = state.sessionOrder.length > 1;
-  list.replaceChildren(...state.workspaceOrder.map((id, index) => {
+  replaceChildren(list, ...state.workspaceOrder.map((id, index) => {
     const ws = state.workspaces[id];
     const openIn = windowOf(id);
     const here = bindings[windowId] === id;
     const parkedIn = parkedOf(id);
     const head = h('div', {
       class: 'ws-head row',
-      title: here ? 'このウィンドウで開いています'
-        : openIn != null ? 'クリックで開いているウィンドウへ移動'
-          : parkedIn ? 'クリックで休止を解いて再開（別ウィンドウで休止中ならこのウィンドウへ移す）'
-            : 'クリックでこのウィンドウに開く',
+      title: here ? uiText("このウィンドウで開いています")
+        : openIn != null ? uiText("クリックで開いているウィンドウへ移動")
+          : parkedIn ? uiText("クリックで休止を解いて再開（別ウィンドウで休止中ならこのウィンドウへ移す）")
+            : uiText("クリックでこのウィンドウに開く"),
       onclick: () => onRowClick(id),
     },
-      workspaceHotkey(index) ? h('span', { class: 'badge hotkey', title: `${workspaceHotkey(index)} キーで切替（Shift で新しいウィンドウ）` }, workspaceHotkey(index)) : null,
+      workspaceHotkey(index) ? h('span', { class: 'badge hotkey', title: uiText("{p0} キーで切替（Shift で新しいウィンドウ）", {p0: (workspaceHotkey(index))}) }, workspaceHotkey(index)) : null,
       wsIcon(ws),
       h('span', { class: 'grow ellipsis' }, ws.name),
-      showSession ? h('span', { class: 'ws-session', title: `使うセッション: ${sessionName(ws.sessionId)}` }, sessionName(ws.sessionId)) : null,
-      ws.bookmarkFolderId ? h('span', { class: 'muted small', title: 'ブックマークフォルダ接続済み' }, '★') : null,
-      here ? h('span', { class: 'badge here', title: 'このウィンドウ' }, 'ここ')
-        : openIn != null ? h('span', { class: 'badge', title: '別ウィンドウで開いている' }, '別')
+      showSession ? h('span', { class: 'ws-session', title: uiText("使うセッション: {p0}", {p0: (sessionName(ws.sessionId))}) }, sessionName(ws.sessionId)) : null,
+      ws.bookmarkFolderId ? h('span', { class: 'muted small', title: uiText("ブックマークフォルダ接続済み") }, '★') : null,
+      here ? h('span', { class: 'badge here', title: uiText("このウィンドウ") }, uiText("ここ"))
+        : openIn != null ? h('span', { class: 'badge', title: uiText("別ウィンドウで開いている") }, uiText("別"))
           : parkedIn ? h('span', {
             class: 'badge parked',
-            title: parkedIn.windowId === windowId ? 'このウィンドウで休止中（タブは折りたたんだグループに残っています）' : '別ウィンドウで休止中',
-          }, parkedIn.windowId === windowId ? '休止' : '別・休止') : null,
-      h('span', { class: 'muted small', title: '保存されているタブ数' }, `${ws.tabs.length}`),
+            title: parkedIn.windowId === windowId ? uiText("このウィンドウで休止中（タブは折りたたんだグループに残っています）") : uiText("別ウィンドウで休止中"),
+          }, parkedIn.windowId === windowId ? uiText("休止") : uiText("別・休止")) : null,
+      h('span', { class: 'muted small', title: uiText("保存されているタブ数") }, `${ws.tabs.length}`),
       // 行の操作（マウスを乗せると出る。issue #35）: ⏸ 今のタブを休止して切替 / ⧉ 新しいウィンドウで開く
       here || openIn != null ? null : h('button', {
         class: 'icon act', type: 'button',
-        title: '今のワークスペースのタブを閉じずに休止して、このワークスペースに切り替える',
+        title: uiText("今のワークスペースのタブを閉じずに休止して、このワークスペースに切り替える"),
         onclick: (e) => { e.stopPropagation(); selectWorkspace(id); switchHere(id, { park: true }); },
       }, '⏸'),
-      h('button', {
+      // このウィンドウで開いている行では「開いているウィンドウへ移動」は意味が無いので出さない（名前の表示幅を空ける）
+      here ? null : h('button', {
         class: 'icon act', type: 'button',
-        title: openIn != null ? '開いているウィンドウへ移動' : '新しいウィンドウで開く',
+        title: openIn != null ? uiText("開いているウィンドウへ移動") : uiText("新しいウィンドウで開く"),
         onclick: (e) => { e.stopPropagation(); openNewWindow(id); },
       }, '⧉'),
     );
@@ -423,7 +425,7 @@ function renderList() {
  * check: { on, onToggle(e), selecting } を渡すと行の先頭にチェックボックス（別のワークスペースへの移動用。issue #33）。
  * selecting（1 件でも選んでいる間）は、行のどこをクリックしてもタブを開かずにチェックを切り替える
  */
-function entryRow({ url, title, sub, extra, active, discarded, check, onOpen, onClose, closeTitle = 'タブを閉じる' }) {
+function entryRow({ url, title, sub, extra, active, discarded, check, onOpen, onClose, closeTitle = uiText("タブを閉じる") }) {
   return h('div', {
     class: `entry${active ? ' on' : ''}${discarded ? ' discarded' : ''}${check?.on ? ' checked' : ''}`,
     title: url || '',
@@ -433,12 +435,12 @@ function entryRow({ url, title, sub, extra, active, discarded, check, onOpen, on
     },
   },
     check ? h('input', {
-      type: 'checkbox', class: 'check', checked: !!check.on, title: '選択して別のワークスペースへ移動（Shift+クリックで範囲）',
+      type: 'checkbox', class: 'check', checked: !!check.on, title: uiText("選択して別のワークスペースへ移動（Shift+クリックで範囲）"),
       // チェックボックス自身のクリックで切り替える（既定の動作で checked が変わった後に描き直すので preventDefault はしない）
       onclick: (e) => { e.stopPropagation(); check.onToggle(e); },
     }) : null,
     url ? fav(url) : null,
-    h('span', { class: 'title ellipsis' }, title || url || '（無題）'),
+    h('span', { class: 'title ellipsis' }, title || url || uiText("（無題）")),
     sub ? h('span', { class: 'host muted small ellipsis' }, sub) : null,
     extra || null,
     onClose ? h('button', {
@@ -517,28 +519,28 @@ function makeTabDropTarget(el, getWs) {
 
 async function dropTabInto(ws, { url, title }) {
   if (!ws.bookmarkFolderId) {
-    toast('このワークスペースにはブックマークフォルダが接続されていません', true);
+    toast(uiText("このワークスペースにはブックマークフォルダが接続されていません"), true);
     return;
   }
   if (!isBookmarkableUrl(url)) {
-    toast('このページはブックマークに保存できません', true);
+    toast(uiText("このページはブックマークに保存できません"), true);
     return;
   }
   const res = await call('addBookmarkToWorkspace', { workspaceId: ws.id, url, title });
-  toast(res.created ? `${res.workspaceName} に保存しました` : `${res.workspaceName} に保存済みです`);
+  toast(res.created ? uiText("{p0} に保存しました", {p0: (res.workspaceName)}) : uiText("{p0} に保存済みです", {p0: (res.workspaceName)}));
 }
 
 function renderBookmarks() {
   const ws = data.state.workspaces[selectedId];
   const body = $('bookmarks');
-  $('bmTitle').textContent = 'ブックマーク';
+  setText($('bmTitle'), uiText("ブックマーク"));
   if (!ws) {
-    body.replaceChildren(h('div', { class: 'empty' }, '左のワークスペースを選ぶと、接続フォルダのブックマークを表示します。'));
+    replaceChildren(body, h('div', { class: 'empty' }, uiText("左のワークスペースを選ぶと、接続フォルダのブックマークを表示します。")));
     return;
   }
   if (!ws.bookmarkFolderId) {
-    body.replaceChildren(h('div', { class: 'empty' },
-      'ブックマークフォルダが未接続です。',
+    replaceChildren(body, h('div', { class: 'empty' },
+      uiText("ブックマークフォルダが未接続です。"),
       h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '8px' } },
         h('button', {
           type: 'button',
@@ -547,32 +549,32 @@ function renderBookmarks() {
             bmKey = '';
             folders = null;
           }),
-        }, 'フォルダを作成して接続'),
+        }, uiText("フォルダを作成して接続")),
       ),
     ));
     return;
   }
   const bookmarks = detail.bookmarks;
   if (bookmarks === undefined) {
-    body.replaceChildren(h('div', { class: 'empty' }, '読み込み中…'));
+    replaceChildren(body, h('div', { class: 'empty' }, uiText("読み込み中…")));
     return;
   }
   if (!bookmarks || bookmarks.error) {
-    body.replaceChildren(h('div', { class: 'empty' }, bookmarks?.error || 'フォルダが見つかりません。'));
+    replaceChildren(body, h('div', { class: 'empty' }, bookmarks?.error ? localizedValue(() => translateText(bookmarks.error)) : uiText("フォルダが見つかりません。")));
     return;
   }
-  $('bmTitle').textContent = `ブックマーク（${bookmarks.items.length}）`;
+  setText($('bmTitle'), uiText("ブックマーク（{p0}）", {p0: (bookmarks.items.length)}));
   const openWin = windowOf(ws.id);
   const lead = openWin == null
-    ? (parkedOf(ws.id) ? '休止中です。' : 'このワークスペースは開いていません。') + '行を開くと、この 1 件だけを現在のウィンドウで開きます。'
+    ? localizedValue(() => (parkedOf(ws.id) ? uiText("休止中です。") : uiText("このワークスペースは開いていません。")) + uiText("行を開くと、この 1 件だけを現在のウィンドウで開きます。"))
     : openWin !== windowId
-      ? '別ウィンドウで開いています。行を開くとそのウィンドウでこの 1 件を開きます。'
+      ? uiText("別ウィンドウで開いています。行を開くとそのウィンドウでこの 1 件を開きます。")
       : '';
   if (!bookmarks.items.length) {
     const nodes = [];
     if (lead) nodes.push(h('div', { class: 'hint' }, lead));
-    nodes.push(h('div', { class: 'empty' }, `「${bookmarks.title}」は空です。`));
-    body.replaceChildren(...nodes);
+    nodes.push(h('div', { class: 'empty' }, uiText("「{p0}」は空です。", {p0: (bookmarks.title)})));
+    replaceChildren(body, ...nodes);
     return;
   }
   const groups = [];
@@ -589,7 +591,7 @@ function renderBookmarks() {
   if (lead) nodes.push(h('div', { class: 'hint' }, lead));
   if (bookmarks.title) nodes.push(h('div', { class: 'hint' }, bookmarks.title));
   for (const key of groups) {
-    if (key || groups.length > 1) nodes.push(h('div', { class: 'group-label' }, key || '直下'));
+    if (key || groups.length > 1) nodes.push(h('div', { class: 'group-label' }, key || uiText("直下")));
     for (const it of map.get(key)) {
       // 行をドラッグして「よく開くタブ」に登録できる（issue #34）
       nodes.push(makeTabDraggable(entryRow({
@@ -600,7 +602,7 @@ function renderBookmarks() {
       }), { url: it.url, title: it.title }));
     }
   }
-  body.replaceChildren(...nodes);
+  replaceChildren(body, ...nodes);
 }
 
 // 開いているタブをブックマーク一覧へドロップ → 選択中ワークスペースの接続フォルダに登録
@@ -708,17 +710,17 @@ function makeShelfDropTarget(el) {
 
 async function addToShelf(ws, { url, title }) {
   if (!isBookmarkableUrl(url)) {
-    toast('このページは置き場に登録できません', true);
+    toast(uiText("このページは置き場に登録できません"), true);
     return;
   }
   const res = await call('addShelfItem', { workspaceId: ws.id, url, title });
-  toast(res.added ? `「${res.workspaceName}」のよく開くタブに登録しました` : '既に登録されています');
+  toast(res.added ? uiText("「{p0}」のよく開くタブに登録しました", {p0: (res.workspaceName)}) : uiText("既に登録されています"));
 }
 
 function removeFromShelf(wsId, url) {
   return attempt(async () => {
     await call('removeShelfItem', { workspaceId: wsId, url });
-    toast('よく開くタブから外しました');
+    toast(uiText("よく開くタブから外しました"));
   });
 }
 
@@ -729,21 +731,21 @@ function renderShelf() {
   title.hidden = !ws;
   body.hidden = !ws;
   if (!ws) {
-    body.replaceChildren();
+    replaceChildren(body);
     return;
   }
   const items = ws.shelf || [];
-  title.textContent = items.length ? `よく開くタブ（${items.length}）` : 'よく開くタブ';
+  setText(title, items.length ? uiText("よく開くタブ（{p0}）", {p0: (items.length)}) : uiText("よく開くタブ"));
   if (!items.length) {
-    body.replaceChildren(h('div', { class: 'shelf-empty' },
-      'ブックマークするほどではないが、よく開くページの置き場です。開いているタブ・保存済みタブ・ブックマークの行をここにドラッグ＆ドロップすると登録されます。'));
+    replaceChildren(body, h('div', { class: 'shelf-empty' },
+      uiText("ブックマークするほどではないが、よく開くページの置き場です。開いているタブ・保存済みタブ・ブックマークの行をここにドラッグ＆ドロップすると登録されます。")));
     return;
   }
-  body.replaceChildren(...items.map((it) => {
+  replaceChildren(body, ...items.map((it) => {
     const row = entryRow({
       url: it.url, title: it.title, sub: hostOf(it.url),
       onOpen: () => openSingle(it.url),
-      onClose: () => removeFromShelf(ws.id, it.url), closeTitle: 'よく開くタブから外す',
+      onClose: () => removeFromShelf(ws.id, it.url), closeTitle: uiText("よく開くタブから外す"),
     });
     makeShelfDraggable(row, it);
     makeShelfReorderTarget(row, it.url);
@@ -759,9 +761,9 @@ function renderTabs() {
   const body = $('tabs');
   const ws = data.state.workspaces[selectedId];
   if (!view) {
-    $('tabTitle').textContent = 'タブ';
+    setText($('tabTitle'), uiText("タブ"));
     renderTabActions(null, []);
-    body.replaceChildren(h('div', { class: 'empty' }, '読み込み中…'));
+    replaceChildren(body, h('div', { class: 'empty' }, uiText("読み込み中…")));
     return;
   }
   if (view.mode === 'saved') {
@@ -769,17 +771,17 @@ function renderTabs() {
     syncCheckedScope(`${selectedId}:saved`);
     const keys = tabs.map((_t, i) => i);
     renderTabActions(view, keys);
-    $('tabTitle').textContent = `保存済みのタブ（${tabs.length}）`;
+    setText($('tabTitle'), uiText("保存済みのタブ（{p0}）", {p0: (tabs.length)}));
     if (!tabs.length) {
-      body.replaceChildren(h('div', { class: 'empty' }, '保存されているタブはありません。'));
+      replaceChildren(body, h('div', { class: 'empty' }, uiText("保存されているタブはありません。")));
       return;
     }
-    const nodes = [h('div', { class: 'hint' }, 'まだ開いていません。行を開くと、この 1 件だけを現在のウィンドウで開きます。色の付いた行は、ワークスペースを開いたときに前面になるタブです。')];
+    const nodes = [h('div', { class: 'hint' }, uiText("まだ開いていません。行を開くと、この 1 件だけを現在のウィンドウで開きます。色の付いた行は、ワークスペースを開いたときに前面になるタブです。"))];
     let lastGroup;
     tabs.forEach((t, i) => {
       if (t.groupKey !== lastGroup) {
         lastGroup = t.groupKey;
-        if (t.groupKey) nodes.push(h('div', { class: 'group-label' }, view.groups?.[t.groupKey]?.title || 'グループ'));
+        if (t.groupKey) nodes.push(h('div', { class: 'group-label' }, view.groups?.[t.groupKey]?.title || uiText("グループ")));
       }
       // 行をドラッグして「よく開くタブ」やブックマークに登録できる（issue #34）
       nodes.push(makeTabDraggable(entryRow({
@@ -791,7 +793,7 @@ function renderTabs() {
         onOpen: () => openSingle(t.url),
       }), { url: t.url, title: t.title }));
     });
-    body.replaceChildren(...nodes);
+    replaceChildren(body, ...nodes);
     return;
   }
 
@@ -802,22 +804,22 @@ function renderTabs() {
   syncCheckedScope(`${selectedId}:live:${view.windowId}`);
   const keys = tabs.map((t) => t.id);
   renderTabActions(view, keys);
-  $('tabTitle').textContent = `${view.parked ? '休止中のタブ' : '開いているタブ'}（${tabs.length}）`;
+  setText($('tabTitle'), uiText("{p0}（{p1}）", {p0: view.parked ? uiText("休止中のタブ") : uiText("開いているタブ"), p1: tabs.length}));
   if (!tabs.length) {
-    body.replaceChildren(h('div', { class: 'empty' }, '開いているタブはありません。'));
+    replaceChildren(body, h('div', { class: 'empty' }, uiText("開いているタブはありません。")));
     return;
   }
   const nodes = [];
-  if (!ws) nodes.push(h('div', { class: 'hint' }, 'このウィンドウで開いているタブです。'));
+  if (!ws) nodes.push(h('div', { class: 'hint' }, uiText("このウィンドウで開いているタブです。")));
   else if (view.parked) {
-    nodes.push(h('div', { class: 'hint' }, `${view.windowId === windowId ? 'このウィンドウ' : '別ウィンドウ'}で休止中（折りたたんだグループ「⏸ …」）のタブです。行を開くとそのタブへ移動します（ワークスペースは切り替わりません）。`));
-  } else if (view.windowId !== windowId) nodes.push(h('div', { class: 'hint' }, '別ウィンドウで開いています。行を開くとそのタブへ移動します。'));
+    nodes.push(h('div', { class: 'hint' }, uiText("{p0}で休止中（折りたたんだグループ「⏸ …」）のタブです。行を開くとそのタブへ移動します（ワークスペースは切り替わりません）。", {p0: (view.windowId === windowId ? uiText("このウィンドウ") : uiText("別ウィンドウ"))})));
+  } else if (view.windowId !== windowId) nodes.push(h('div', { class: 'hint' }, uiText("別ウィンドウで開いています。行を開くとそのタブへ移動します。")));
   // ローカルファイル（issue #55）: 「ファイルの URL へのアクセス」が許可されていないと開き直せないので、保存せず切替でも閉じない
   const localFiles = !data.fileAccess && tabs.some((t) => isFileUrl(tabUrl(t)));
   if (localFiles) {
     nodes.push(h('div', { class: 'hint' },
-      'ローカルファイル（file://）のタブは、拡張に「ファイルの URL へのアクセス」が許可されていないため、ワークスペースには保存せず、切替でも閉じずにこのウィンドウに残します。',
-      h('a', { href: '#', onclick: (e) => { e.preventDefault(); openSettings('display'); } }, '設定・管理の「表示・操作」'), 'から許可の手順を確認できます。'));
+      uiText("ローカルファイル（file://）のタブは、拡張に「ファイルの URL へのアクセス」が許可されていないため、ワークスペースには保存せず、切替でも閉じずにこのウィンドウに残します。"),
+      h('a', { href: '#', onclick: (e) => { e.preventDefault(); openSettings('display'); } }, uiText("設定・管理の「表示・操作」")), uiText("から許可の手順を確認できます。")));
   }
   let lastGroup;
   tabs.forEach((t, i) => {
@@ -825,24 +827,24 @@ function renderTabs() {
     if (gid !== lastGroup) {
       lastGroup = gid;
       // 休止中は全部が休止グループなので見出しは出さない
-      if (gid !== -1 && !view.parked) nodes.push(h('div', { class: 'group-label' }, groupById[gid]?.title || 'グループ'));
+      if (gid !== -1 && !view.parked) nodes.push(h('div', { class: 'group-label' }, groupById[gid]?.title || uiText("グループ")));
     }
     const url = tabUrl(t);
     // 自動クローズの除外（issue #20）: 除外中ならバッジ（クリックで解除）、そうでなければ追加ボタン（行にマウスを乗せると出る）
     const excluded = autoCloseExcludeMatch(url, data.state.settings.autoCloseExclude);
     const exclude = excluded
       ? h('span', {
-        class: 'badge excl', title: `自動クローズの対象外（除外パターン: ${excluded}）。クリックで解除`,
+        class: 'badge excl', title: uiText("自動クローズの対象外（除外パターン: {p0}）。クリックで解除", {p0: (excluded)}),
         onclick: (e) => { e.stopPropagation(); removeExclude(excluded); },
-      }, '除外')
+      }, uiText("除外"))
       : url ? h('button', {
-        class: 'icon excl', type: 'button', title: '自動クローズから除外（このページ / このサイト全体）',
+        class: 'icon excl', type: 'button', title: uiText("自動クローズから除外（このページ / このサイト全体）"),
         onclick: (e) => { e.stopPropagation(); openExcludeDialog(t); },
       }, '🛡') : null;
     nodes.push(makeTabDraggable(entryRow({
       url,
-      title: (t.pinned ? '📌 ' : '') + (t.title || url || '新しいタブ'),
-      sub: t.discarded ? 'メモリ解放済み' : localFiles && isFileUrl(url) ? 'ローカルファイル（切替で閉じずに残す）' : hostOf(url),
+      title: localizedValue(() => (t.pinned ? '📌 ' : '') + (t.title || url || uiText("新しいタブ"))),
+      sub: t.discarded ? uiText("メモリ解放済み") : localFiles && isFileUrl(url) ? uiText("ローカルファイル（切替で閉じずに残す）") : hostOf(url),
       extra: exclude,
       active: t.active,
       discarded: t.discarded,
@@ -851,7 +853,7 @@ function renderTabs() {
       onClose: async () => { await chrome.tabs.remove(t.id); },
     }), t));
   });
-  body.replaceChildren(...nodes);
+  replaceChildren(body, ...nodes);
 }
 
 // ---- タブの選択と別のワークスペースへの移動（issue #33） ----
@@ -888,32 +890,32 @@ function renderTabActions(view, keys) {
   $('tabs').classList.toggle('selecting', checked.size > 0);
   if (!checked.size || !view) {
     bar.hidden = true;
-    bar.replaceChildren();
+    replaceChildren(bar);
     return;
   }
   const { state } = data;
   const candidates = state.workspaceOrder.filter((id) => id !== selectedId);
   if (!candidates.some((id) => id === moveDest)) moveDest = candidates[0] || '';
-  const dest = h('select', { title: '移動先のワークスペース' }, candidates.map((id) => {
+  const dest = h('select', { title: uiText("移動先のワークスペース") }, candidates.map((id) => {
     const w = state.workspaces[id];
-    const where = windowOf(id) === windowId ? '（このウィンドウ）' : windowOf(id) != null ? '（別ウィンドウ）' : parkedOf(id) ? '（休止中）' : '';
-    return h('option', { value: id, selected: id === moveDest }, `${w.icon ? w.icon + ' ' : ''}${w.name}${where}`);
+    const where = windowOf(id) === windowId ? uiText("（このウィンドウ）") : windowOf(id) != null ? uiText("（別ウィンドウ）") : parkedOf(id) ? uiText("（休止中）") : '';
+    return h('option', { value: id, selected: id === moveDest }, localizedValue(() => `${w.icon ? w.icon + ' ' : ''}${w.name}${where}`));
   }));
   dest.addEventListener('change', () => { moveDest = dest.value; });
   const move = h('button', {
     class: 'primary', type: 'button', disabled: !candidates.length,
-    title: '移動先が開いていればそのウィンドウへ移し（読み込み直さない）、休止中なら休止グループに加え、閉じていれば保存タブに加えてタブを閉じます',
+    title: uiText("移動先が開いていればそのウィンドウへ移し（読み込み直さない）、休止中なら休止グループに加え、閉じていれば保存タブに加えてタブを閉じます"),
     onclick: () => moveChecked(view, dest.value),
-  }, '移動');
+  }, uiText("移動"));
   // replaceChildren(null) は "null" という文字列になるので、要素だけを渡す
-  bar.replaceChildren(...[
-    h('span', { class: 'muted' }, `${checked.size} 件を選択`),
-    checked.size < keys.length ? h('button', { type: 'button', onclick: () => { for (const k of keys) checked.add(k); renderTabs(); } }, 'すべて選択') : null,
-    h('button', { type: 'button', onclick: () => { checked.clear(); lastCheckedIndex = -1; renderTabs(); } }, '解除'),
-    h('span', { class: 'muted small', style: { marginLeft: '6px' } }, '移動先'),
+  replaceChildren(bar, ...[
+    h('span', { class: 'muted' }, uiText("{p0} 件を選択", {p0: (checked.size)})),
+    checked.size < keys.length ? h('button', { type: 'button', onclick: () => { for (const k of keys) checked.add(k); renderTabs(); } }, uiText("すべて選択")) : null,
+    h('button', { type: 'button', onclick: () => { checked.clear(); lastCheckedIndex = -1; renderTabs(); } }, uiText("解除")),
+    h('span', { class: 'muted small', style: { marginLeft: '6px' } }, uiText("移動先")),
     dest,
     move,
-    candidates.length ? null : h('span', { class: 'muted small' }, '他のワークスペースがありません'),
+    candidates.length ? null : h('span', { class: 'muted small' }, uiText("他のワークスペースがありません")),
   ].filter(Boolean));
   bar.hidden = false;
 }
@@ -945,15 +947,15 @@ let createIcon = '';
 function fillCreateFolderOptions() {
   const sel = $('createFolder');
   const keep = sel.value;
-  sel.replaceChildren(
-    h('option', { value: 'new' }, '新しいフォルダを作成して接続'),
-    h('option', { value: '' }, '接続しない'),
+  replaceChildren(sel,
+    h('option', { value: 'new' }, uiText("新しいフォルダを作成して接続")),
+    h('option', { value: '' }, uiText("接続しない")),
   );
   if (folders) {
-    const group = h('optgroup', { label: '既存のフォルダを接続' }, folders.map((f) => h('option', { value: f.id }, f.path)));
+    const group = h('optgroup', { label: uiText("既存のフォルダを接続") }, folders.map((f) => h('option', { value: f.id }, f.path)));
     sel.append(group);
   } else {
-    sel.append(h('option', { value: 'loading', disabled: true }, '既存のフォルダを読み込み中…'));
+    sel.append(h('option', { value: 'loading', disabled: true }, uiText("既存のフォルダを読み込み中…")));
     attempt(async () => {
       await loadFolders();
       if ($('createDialog').open) fillCreateFolderOptions();
@@ -966,11 +968,11 @@ function openCreateDialog({ keepTabs = false } = {}) {
   const { state, bindings } = data;
   const current = state.workspaces[bindings[windowId]];
   const defaultSession = current?.sessionId || state.workspaces[state.lastFocusedWorkspaceId]?.sessionId || state.sessionOrder[0];
-  $('createSession').replaceChildren(...state.sessionOrder.map((id) =>
+  replaceChildren($('createSession'), ...state.sessionOrder.map((id) =>
     h('option', { value: id, selected: id === defaultSession }, state.sessions[id].name)));
   $('createName').value = '';
   createIcon = '';
-  $('createIcon').replaceChildren(iconPicker('', (v) => { createIcon = v; }));
+  replaceChildren($('createIcon'), iconPicker('', (v) => { createIcon = v; }));
   fillCreateFolderOptions();
   $('createFolder').value = 'new';
   const unassigned = !bindings[windowId];
@@ -984,9 +986,9 @@ function openCreateDialog({ keepTabs = false } = {}) {
   };
   updatePark();
   $('createSession').onchange = updatePark;
-  $('createHint').textContent = unassigned
+  setText($('createHint'), unassigned
     ? ''
-    : '作成後、このウィンドウを新しいワークスペースに切り替えます（今のタブは現在のワークスペースに保存されます）。';
+    : uiText("作成後、このウィンドウを新しいワークスペースに切り替えます（今のタブは現在のワークスペースに保存されます）。"));
   $('createDialog').showModal();
   $('createName').focus();
 }
@@ -1016,8 +1018,8 @@ $('createForm').addEventListener('submit', (e) => {
     folders = null;
     bmKey = '';
     toast(keep
-      ? (cookieSession ? `「${name}」として保存し、Cookie をセッション「${cookieSession.toName}」に入れ替えました` : `「${name}」として保存しました`)
-      : `「${name}」を作成しました`);
+      ? (cookieSession ? uiText("「{p0}」として保存し、Cookie をセッション「{p1}」に入れ替えました", {p0: (name), p1: (cookieSession.toName)}) : uiText("「{p0}」として保存しました", {p0: (name)}))
+      : uiText("「{p0}」を作成しました", {p0: (name)}));
     return windowId;
   };
   // 今のタブを引き継ぐだけなら移動しないのでパネルは開いたまま。新しいワークスペースへ切り替えるときは切替後に閉じる
@@ -1029,8 +1031,8 @@ $('createForm').addEventListener('submit', (e) => {
 function updateClosedCount(n) {
   const badge = $('closedBadge');
   badge.hidden = !n;
-  badge.textContent = String(n);
-  badge.title = `自動クローズで閉じたタブ: ${n} 件（設定・管理の「閉じたタブ」で開き直せます）`;
+  setText(badge, String(n));
+  setTranslatedAttribute(badge, 'title', uiText("自動クローズで閉じたタブ: {p0} 件（設定・管理の「閉じたタブ」で開き直せます）", {p0: (n)}));
 }
 
 async function loadClosedCount() {
@@ -1045,7 +1047,7 @@ let excludeCandidates = { page: '', site: null };
 function openExcludeDialog(tab) {
   const url = tabUrl(tab);
   excludeCandidates = excludePatternsForUrl(url);
-  $('excludeTab').textContent = tab.title || url;
+  setText($('excludeTab'), tab.title || url);
   $('excludeTab').title = url;
   const site = $('excludeDialog').querySelector('input[name=excludeKind][value=site]');
   site.disabled = !excludeCandidates.site;
@@ -1059,7 +1061,7 @@ function openExcludeDialog(tab) {
 function removeExclude(pattern) {
   return attempt(async () => {
     await call('removeAutoCloseExclude', { pattern });
-    toast(`除外を解除しました: ${pattern}`);
+    toast(uiText("除外を解除しました: {p0}", {p0: (pattern)}));
   });
 }
 
@@ -1070,11 +1072,11 @@ $('excludeCancel').addEventListener('click', () => $('excludeDialog').close());
 $('excludeForm').addEventListener('submit', (e) => {
   e.preventDefault();
   const pattern = $('excludeValue').value.trim();
-  if (!pattern) { toast('除外する URL を入力してください', true); return; }
+  if (!pattern) { toast(uiText("除外する URL を入力してください"), true); return; }
   attempt(async () => {
     const res = await call('addAutoCloseExclude', { pattern });
     $('excludeDialog').close();
-    toast(res.added ? `自動クローズから除外: ${res.pattern}` : '既に除外リストにあります');
+    toast(res.added ? uiText("自動クローズから除外: {p0}", {p0: (res.pattern)}) : uiText("既に除外リストにあります"));
   });
 });
 
@@ -1157,7 +1159,7 @@ async function loadFolders() {
 
 $('discard').addEventListener('click', () => attempt(async () => {
   const n = await call('discardInactive', { windowId });
-  toast(`${n} 個のタブのメモリを解放しました`);
+  toast(uiText("{p0} 個のタブのメモリを解放しました", {p0: (n)}));
 }));
 /**
  * 設定・管理画面（ワークスペース / セッション / 閉じたタブ / 各設定）を対象ウィンドウのタブで開く。
@@ -1184,7 +1186,7 @@ $('guide').addEventListener('click', () => attempt(() => moveAway(async () => {
 })));
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if ((area === 'local' && changes.state) || (area === 'session' && (changes.bindings || changes.parked))) attempt(load);
+  if ((area === 'local' && changes.state && !languageOnlyChange(changes.state)) || (area === 'session' && (changes.bindings || changes.parked))) attempt(load);
   if (area === 'local' && changes.closedTabs) {
     const v = changes.closedTabs.newValue;
     updateClosedCount(Array.isArray(v) ? v.length : 0);
@@ -1222,13 +1224,13 @@ function relTime(ts) {
   if (!ts) return '';
   const d = Date.now() - ts;
   const min = Math.floor(d / 60000);
-  if (min < 1) return 'たった今';
-  if (min < 60) return `${min} 分前`;
+  if (min < 1) return uiText("たった今");
+  if (min < 60) return uiText("{p0} 分前", {p0: (min)});
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} 時間前`;
+  if (hr < 24) return uiText("{p0} 時間前", {p0: (hr)});
   const day = Math.floor(hr / 24);
-  if (day === 1) return '昨日';
-  if (day < 7) return `${day} 日前`;
+  if (day === 1) return uiText("昨日");
+  if (day < 7) return uiText("{p0} 日前", {p0: (day)});
   const t = new Date(ts);
   return `${t.getMonth() + 1}/${t.getDate()}`;
 }
@@ -1243,7 +1245,7 @@ function searchSelect(i) {
 function searchEntry({ icon, url, title, sub, time, run }) {
   const el = h('div', { class: 'entry', title: url || '' },
     icon || (url ? fav(url) : null),
-    h('span', { class: 'title ellipsis' }, title || url || '（無題）'),
+    h('span', { class: 'title ellipsis' }, title || url || uiText("（無題）")),
     sub ? h('span', { class: 'host muted small ellipsis' }, sub) : null,
     time ? h('span', { class: 'time' }, time) : null,
   );
@@ -1263,16 +1265,16 @@ async function hasHistoryPermission() {
 /** ユーザー操作の直後に呼ぶ（Chrome の権限確認が出る）。許可されたら検索をやり直す */
 async function requestHistoryPermission() {
   const granted = await chrome.permissions.request(HISTORY_PERMISSION);
-  if (!granted) { toast('権限が許可されなかったため、閲覧履歴は検索しません', true); return; }
-  if (!chrome.history) { toast('許可しました。パネルを開き直すと閲覧履歴も検索できます'); return; }
-  toast('閲覧履歴も検索します');
+  if (!granted) { toast(uiText("権限が許可されなかったため、閲覧履歴は検索しません"), true); return; }
+  if (!chrome.history) { toast(uiText("許可しました。パネルを開き直すと閲覧履歴も検索できます")); return; }
+  toast(uiText("閲覧履歴も検索します"));
   await runSearch();
 }
 
 function closeSearch() {
   const box = $('searchResults');
   box.hidden = true;
-  box.replaceChildren();
+  replaceChildren(box);
   searchItems = [];
 }
 
@@ -1290,15 +1292,15 @@ async function runSearch() {
   const wsList = state.workspaceOrder
     .map((id) => state.workspaces[id])
     .filter((w) => matchesQuery(`${w.name} ${sessionName(w.sessionId)} ${w.icon || ''}`, q));
-  section(`ワークスペース（${wsList.length}）`);
+  section(uiText("ワークスペース（{p0}）", {p0: (wsList.length)}));
   for (const w of wsList) {
     const here = data.bindings[windowId] === w.id;
     const parkedIn = parkedOf(w.id);
     push(searchEntry({
       icon: wsIcon(w),
       title: w.name,
-      sub: here ? 'このウィンドウ'
-        : `${parkedIn ? (parkedIn.windowId === windowId ? '休止中 · ' : '別ウィンドウで休止中 · ') : ''}${sessionName(w.sessionId)} · ${w.tabs.length} タブ`,
+      sub: here ? uiText("このウィンドウ")
+        : uiText("{p0}{p1} · {p2} タブ", {p0: (parkedIn ? (parkedIn.windowId === windowId ? uiText("休止中 · ") : uiText("別ウィンドウで休止中 · ")) : ''), p1: (sessionName(w.sessionId)), p2: (w.tabs.length)}),
       // Enter = 既定の切替方法 / Shift+Enter = 新しいウィンドウとの入れ替え / Ctrl+Enter = 休止との入れ替え（keyMode）
       run: async (mode) => {
         clearSearch();
@@ -1315,7 +1317,7 @@ async function runSearch() {
     }
   }
   if (shelfHits.length) {
-    section(`よく開くタブ（${shelfHits.length}）`);
+    section(uiText("よく開くタブ（{p0}）", {p0: (shelfHits.length)}));
     for (const s of shelfHits.slice(0, 20)) {
       push(searchEntry({
         url: s.url,
@@ -1336,7 +1338,7 @@ async function runSearch() {
       if (matchesQuery(`${it.title} ${it.url} ${it.path} ${state.workspaces[f.workspaceId]?.name || ''}`, q)) bms.push({ ...it, workspaceId: f.workspaceId });
     }
   }
-  section(`ブックマーク（${bms.length}）`);
+  section(uiText("ブックマーク（{p0}）", {p0: (bms.length)}));
   for (const b of bms.slice(0, 30)) {
     const wsName = state.workspaces[b.workspaceId]?.name || '';
     push(searchEntry({
@@ -1360,10 +1362,10 @@ async function runSearch() {
   }
   if (seq !== searchSeq) return;
   if (!histOk) {
-    section('閲覧履歴');
+    section(uiText("閲覧履歴"));
     out.push(h('div', { class: 'hint perm-hint' },
-      h('span', {}, '閲覧履歴も検索するには、閲覧履歴を読む権限が必要です（検索のときに読むだけで、保存や送信はしません）。'),
-      h('button', { type: 'button', onclick: () => attempt(requestHistoryPermission) }, '権限を許可する'),
+      h('span', {}, uiText("閲覧履歴も検索するには、閲覧履歴を読む権限が必要です（検索のときに読むだけで、保存や送信はしません）。")),
+      h('button', { type: 'button', onclick: () => attempt(requestHistoryPermission) }, uiText("権限を許可する")),
     ));
   }
   const seen = new Set([...bms, ...shelfHits].map((b) => normalizeUrlForMatch(b.url)));
@@ -1375,7 +1377,7 @@ async function runSearch() {
     histList.push(hItem);
     if (histList.length >= 20) break;
   }
-  if (histOk) section(`閲覧履歴（${histList.length}）`);
+  if (histOk) section(uiText("閲覧履歴（{p0}）", {p0: (histList.length)}));
   for (const hItem of histList) {
     push(searchEntry({
       url: hItem.url,
@@ -1385,10 +1387,10 @@ async function runSearch() {
       run: (mode) => attempt(async () => { await openUrlIn(hItem.url, mode === 'window' ? null : selectedId); clearSearch(); }),
     }));
   }
-  if (!list.length) out.push(h('div', { class: 'empty' }, '一致するものがありません'));
+  if (!list.length) out.push(h('div', { class: 'empty' }, uiText("一致するものがありません")));
 
   const box = $('searchResults');
-  box.replaceChildren(...out);
+  replaceChildren(box, ...out);
   box.hidden = false;
   searchItems = list;
   searchSel = 0;

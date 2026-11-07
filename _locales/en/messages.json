@@ -1,4 +1,26 @@
 {
-  "extName": { "message": "seiton" },
-  "extDescription": { "message": "Organize tabs and bookmarks into workspaces and switch fast. Also login-session switching, cross-browser sync, and tab auto-close." }
+  "extName": {
+    "message": "seiton"
+  },
+  "extDescription": {
+    "message": "Organize tabs and bookmarks into workspaces and switch fast. Also login-session switching, cross-browser sync, and tab auto-close."
+  },
+  "actionTitle": {
+    "message": "seiton (Quick palette)"
+  },
+  "commandPalette": {
+    "message": "Open the quick palette (current tab / bookmarks / workspace switching)"
+  },
+  "commandManager": {
+    "message": "Open / close the workspace manager (temporary window)"
+  },
+  "commandSaveBookmark": {
+    "message": "Save the current tab to the workspace bookmark folder"
+  },
+  "commandNextWorkspace": {
+    "message": "Switch to the next workspace in the same session"
+  },
+  "commandPrevWorkspace": {
+    "message": "Switch to the previous workspace in the same session"
+  }
 }

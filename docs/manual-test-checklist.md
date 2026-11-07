@@ -1,82 +1,90 @@
-# 手動テスト チェックリスト
+# Manual test checklist
 
-自動テスト（`npm test`）は Chrome API に依存しない部分だけを対象にしているため、以下は Chrome の実機で確認する。関係する項目だけを確認し、確認できなかった項目は PR に「未検証」と書く。
+[日本語: detailed scenarios](manual-test-checklist.ja.md)
 
-- [ ] 管理パネルでワークスペース A を作成 → 数タブ開く → B を作成して切替 → A のタブが消え B（新しいタブ 1 枚）になる
-- [ ] 管理パネルを開くと、ワークスペース一覧・接続フォルダのブックマーク・開いているタブが同時に見える
-- [ ] ＋ のモーダルから作成でき、作成後にこのウィンドウが新しいワークスペースに切り替わる（未割り当てウィンドウでは今のタブを引き継ぐ選択ができる）
-- [ ] ＋ のモーダルでアイコンを選ぶと一覧・詳細・パレットにそのアイコンが出る。「既存のフォルダを接続」を選ぶとそのフォルダのブックマークが表示され、フォルダは新しく作られない
-- [ ] ✎ でアイコンを変更・任意の絵文字を入力・「なし」に戻せる
-- [ ] ワークスペース行をクリックすると、このウィンドウがそのワークスペースに切り替わり、切替完了後に管理パネルが閉じる（パネルのタブが残らない。パネル自身のウィンドウが切り替わったりタブが作られたりしない）
-- [ ] 管理パネルを開いた直後（検索ボックスが空）に番号キー 1〜9 / 0 を押すと、一覧の番号のワークスペースに切り替わる（Shift+番号は新しいウィンドウ）。検索ボックスに文字を入れた後や ✎ 編集中・ダイアログ表示中は数字がそのまま入力される。現在のワークスペースの番号を押しても何も起きない
-- [ ] ワークスペースを選んでも編集画面を開いていない時に「null」などの余計な文字が表示されない
-- [ ] B から A に戻すと A のタブ・固定タブ・タブグループ（名前・色）・アクティブタブが戻る。切替中に前面になるのは保存時のアクティブタブだけで、他のタブは順に前面へ出ない
-- [ ] 遅延読み込み ON で、切替直後に非アクティブタブのメモリが解放された状態（クリックで読み込み）になる
-- [ ] A を ⧉ で別ウィンドウに開いた状態で、もう一方のウィンドウから A を選ぶとそのウィンドウにフォーカスする
-- [ ] ウィンドウを × で閉じても、ワークスペースのタブ一覧が空にならない（再度開くと元のタブが戻る）
-- [ ] Chrome を終了 → 起動（「前回開いていたページを開く」ON / OFF の両方）で、同じワークスペースに戻る
-- [ ] 拡張を再読み込みしても、開いているウィンドウとワークスペースの対応が維持される
-- [ ] ワークスペースにブックマークフォルダを接続 → `Ctrl+D` で追加したブックマークが接続フォルダに入る
-- [ ] ブックマークマネージャーや他端末同期で作ったブックマークは移動されない
-- [ ] `Alt+Shift+D` で接続フォルダに保存され、バッジに `+` が一瞬表示される
-- [ ] ツールバーの seiton アイコンが今のワークスペースの色とアイコン（絵文字なしなら名前の頭文字）になり、ホバーで「seiton — 名前（セッション名）」が出る。切替・✎ での名前 / 色 / アイコン / セッション変更・新しいタブ・ページ遷移・`Alt+Shift+D` のバッジ表示後もウィンドウごとに保たれる。未割り当てウィンドウ（✎ の「切り離す」後など）と管理パネルのポップアップは既定アイコンに戻る
-- [ ] ワークスペースのウィンドウのタブ列左端（固定タブがあればその直後）に、ワークスペースの色で「絵文字 名前」の折りたたまれたラベルが出る。クリックで開くと今のワークスペース・一覧・管理パネルボタン・ブックマークのページがあり、一覧から切替 / ⧉ / ブックマークを開ける（開いたタブはラベルのグループに入らない）。切替・✎ での名前 / 色 / アイコン変更でラベルの色・名前が変わり、切替後もページのタブは 1 枚のまま。パレット・管理パネルのタブ一覧には出ない
-- [ ] ワークスペースタブを閉じる / グループから外す / 他のグループへ入れる / 右へドラッグする / ラベル名や色を手で変える → 作り直されて左端の正しいグループに戻る（変更は次の更新で戻る）。設定で OFF にすると全ウィンドウから消え、ON に戻すと戻る。「切り離す」・ワークスペース削除で消える（最後のタブなら残って「未割り当て」表示）。ユーザー自身のタブグループは切替で保存・復元されたままで、「💼 名前」のグループが保存済みタブに紛れ込まない。タブを 1 枚ずつ閉じてワークスペースタブだけになっても、そのワークスペースの保存タブが空にならない。Chrome 再起動後も復元されたワークスペースタブが再利用され 2 枚にならない
-- [ ] 管理パネルで開いているタブの行をブックマーク一覧（またはワークスペース行）へドラッグ＆ドロップすると、接続フォルダに登録される。同じ URL は二重登録されない
-- [ ] `Alt+K` でパレットが開き、現在のタブ・接続フォルダのブックマーク・他ワークスペースが検索できる
-- [ ] パレットで `>` を打つ（または Tab）とワークスペースだけが並び、名前で絞り込んで Enter でこのウィンドウが切り替わる（Shift+Enter で新しいウィンドウ）
-- [ ] 管理パネルを開くと検索ボックスにフォーカスがあり、文字を打つとワークスペース・ブックマーク・閲覧履歴が出る。閲覧履歴の権限を許可していなければ「閲覧履歴」の節に「権限を許可する」が出て履歴は出ない。押すと Chrome の確認が出て、許可すると同じ検索語で閲覧履歴が出る。設定・管理の「表示・操作」の「閲覧履歴の検索」が「許可済み」になり、「権限を取り消す」で未許可に戻って検索結果にまた「権限を許可する」が出る。インストール時の警告に「閲覧履歴」が無い。↑↓ Enter で開け（開いたらパネルが閉じる）、Esc で検索語が消え、もう一度 Esc でパネルが閉じる
-- [ ] `Alt+Shift+K` で管理パネルが、このウィンドウの約 85% の大きさのポップアップウィンドウとして中央に開く（タブは増えない）。もう一度押すと閉じる / `Alt+Shift+N` で次のワークスペースへ切り替わる
-- [ ] パレット右上の ☰・使い方ページの「管理パネルを開く」からも同じポップアップが開き、操作対象は呼び出したウィンドウになる
-- [ ] 管理パネルのポップアップは同時に 1 つだけ。別のウィンドウから開くと既存のパネルが閉じて、そのウィンドウ用に開き直す
-- [ ] 他のウィンドウをクリックしてフォーカスを外すとパネルが閉じる。＋ の作成ダイアログや ✎ の編集でセレクト・アイコン入力を操作しても閉じない
-- [ ] 作成ダイアログ表示中の Esc はダイアログだけ閉じ、✎ の編集中の Esc は編集だけ閉じる。何も開いていなければ Esc でパネルが閉じる
-- [ ] ⧉・タブの行・ブックマークの行・左下の「⚙ 設定・管理」「? 使い方」を押すと、移動先が前面になってパネルが閉じる。タブの × や「💤 メモリ解放」では閉じない
-- [ ] 管理パネルのヘッダーにはロゴだけがあり、左列の下に「⚙ 設定・管理」「💤 メモリ解放」「? 使い方」が並ぶ。「⚙ 設定・管理」で設定・管理画面がこのウィンドウのタブで開き、既に開いていればそのタブへ移る
-- [ ] 設定・管理画面は左のサイドメニュー（管理: ワークスペース / セッション / 閉じたタブ、設定: 表示 / メモリ / タブの自動クローズ / ブックマーク / ショートカット / バックアップ）で節が切り替わり、URL に #autoclose などが付く。`options.html#sessions` で直接開くとその節が出る。幅を狭くするとメニューが上部のチップになる
-- [ ] 接続中のブックマークフォルダを削除すると、編集画面の接続が「未接続」に戻る
-- [ ] 「セッション」からセッションを追加 → ✎ でワークスペースの使うセッションを変更 → 一覧にセッション名のタグが出る。セッションを削除すると、使っていたワークスペースが別のセッションに付け替わる（ワークスペースは消えない）
-- [ ] 設定・管理画面の「セッション」で 2 つ目のセッションを追加 → 先に拡張の同意ダイアログ（何をするか・どこに保存するか・どう消せるか）が出て、「同意して権限を許可」で Chrome の権限確認が出る。キャンセル（Esc も）または拒否するとセッションは追加されずトーストが出る。許可するとセッションが追加され、そのタブのウィンドウのワークスペースのセッションに「🍪 今の Cookie」バッジが付き、説明に「今 Chrome に入っている Cookie: 「X」」が出る。下の「Cookie の状態」の表にも同じ内容と件数・主なサイトが出る
-- [ ] chrome://extensions で「サイトへのアクセス」を取り消すと、設定・管理画面の「セッション」に「権限を許可する」が出て、管理パネルの ✎ の「使うセッション」の下にヒント（リンクで設定・管理の「セッション」が開く）が出る。許可し直すと元に戻り、退避した Cookie との対応（どのセッションが今の Cookie か）は変わらない
-- [ ] あるサイト（例: GitHub）にログインした状態で、別のセッションを使うワークスペースに切り替える → ワークスペースタブに「Cookie をセッション「Y」に入れ替えました」が出て、そのサイトは未ログインになる。そこで別アカウントでログインし、元のワークスペースに戻す → 元のアカウントでログイン済みに戻る。再度 Y に切り替えると別アカウントのまま。設定の表では切替のたびに「今 Chrome に入っている」の行が移り、他の行は「退避済み（日時）」と件数になる
-- [ ] 切替時にウィンドウが閉じたり、ワークスペースタブが消えたり、切替先のタブが前のセッションのログイン状態で開いたりしない。切替直後に Chrome を再起動しても、ログイン状態は切替先のセッションのまま
-- [ ] ✎ で開いているワークスペースのセッションを変えると、Cookie が入れ替わってそのウィンドウのタブが読み込み直される（トーストにその旨が出る）
-- [ ] 「今の Cookie」のセッションを削除すると、移動先セッションの Cookie に入れ替わり、設定の表からその行が消える
-- [ ] 設定の「退避した Cookie を削除」（2 回押し）で表の件数が「—」になる
-- [ ] 拡張のサービスワーカーの DevTools で `chrome.storage.local.get('cookieJars')` を見ると、各セッションが `{ savedAt, enc: 'aes-gcm-1', iv, data }` で、Cookie の名前や値が平文で現れない。`indexedDB` の `seiton-vault` に鍵が 1 つある。平文 jar（`{ savedAt, cookies: [...] }`）を手で書き込んで拡張を再読み込みすると暗号化形に置き換わり、切替でその Cookie が復元される
-- [ ] エクスポート → 別の設定をインポートしても、権限と退避した Cookie は残る
-- [ ] 設定の自動メモリ解放を 1 分にすると、1〜2 分後に非アクティブタブのメモリが解放される（固定・音声再生中は除く）
-- [ ] 設定の「タブの自動クローズ」を ON・15 分にし、15〜30 分ほど触らずに置くと、使っていないタブが閉じる（アクティブ・固定・音声再生中・管理パネルなどの拡張ページは残り、ウィンドウは消えない）。✎ で「無効」にしたワークスペースのウィンドウでは閉じず、「有効」で期間を変えるとその期間で閉じる
-- [ ] 自動クローズでタブが閉じると、管理パネル左下の「⚙ 設定・管理」と設定・管理画面のメニュー「閉じたタブ」に件数のバッジが付く。「閉じたタブ」の節には「今日」の見出しの下にタイトル・ホスト・ワークスペース名・閉じた時刻が並ぶ。行をクリックするとそのワークスペースのウィンドウ（なければ設定・管理画面のウィンドウ）でそのタブが前面になり、一覧からその行が消える。× ではその 1 件だけ消え（タブは開かない）、検索ボックスでタイトル・URL を絞り込め、「すべて削除」を 2 回押すと空になって「自動で閉じたタブはありません」になる
-- [ ] 設定の「除外する URL」に `example.com` を追加 → 一覧に行が出て、書き換えて Enter で更新、× で削除できる。空や重複は追加されない
-- [ ] 管理パネルの「開いているタブ」の行にマウスを乗せると 🛡 が出る。押すと「自動クローズから除外」のモーダルが開き、「このページ」で URL、「このサイト全体」でホストが入り、書き換えて「除外リストに追加」で登録される。その行に「除外」バッジが出て、設定画面の一覧にも同時に現れる。バッジをクリックすると解除される
-- [ ] 自動クローズを ON・15 分にし、除外した URL のタブは 15〜30 分置いても閉じず、除外していないタブは閉じる。除外したタブだけが残る場合もウィンドウは消えない
-- [ ] エクスポート → インポートで状態が復元される（除外 URL も含む）
-- [ ] 管理パネルの左の一覧でワークスペース行をドラッグすると、他の行の上半分で行の上に、下半分で行の下に青い線が出て、落とすとその位置に並び替わる（番号キーのバッジも付け替わる）。自分の直前 / 直後に落としても何も起きない。ドラッグ後に切替（クリック）が起きない。開いているタブの行を一覧へドラッグするブックマーク登録は従来どおり動く
-- [ ] 設定・管理画面の「ワークスペース」に全ワークスペースの一覧が出る。行の名前を書き換えて Enter / セッション / 自動クローズを変えるとすぐ保存され、管理パネルの一覧・詳細・ツールバーアイコン・ワークスペースタブに反映される（切り替えは起きない）。▼ で色・アイコンが開き、変更が即反映される。⋮⋮ をドラッグして並び替えられ、名前の入力欄からはドラッグが始まらない
-- [ ] 「ワークスペース」で複数行にチェック（「すべて選択」も）→ 一括変更のセッション / 色 / 自動クローズ（有効 + 期間）を「適用」すると、チェックした行だけが変わりトーストに件数が出る。チェックが無いときは一括変更のボタンが押せない。「選択を削除」（2 回押し）でまとめて消え、開いていたウィンドウは未割り当てになりブックマークフォルダは残る
-- [ ] （同期）Chrome に同じ Google アカウントでログインし「拡張機能」の同期が ON の 2 台（または 2 プロファイル）で、設定・管理画面の「同期」を ON にする → 1 台目のワークスペース（名前・色・アイコン・セッション・タブ・並び順）と設定が 2 台目に現れ、「最後の同期」と使用量（KB / 100 KB）が出る。両方に元からあったワークスペースはどちらも残る
-- [ ] （同期）1 台目でワークスペースの名前・色・並び順を変える / セッションを追加する / 設定（遅延読み込み・除外 URL）を変える → 10 秒ほどで 2 台目に反映される。2 台目で開いているワークスペースのタブを増減する → 1 台目の管理パネルでそのワークスペースのタブ数が変わる
-- [ ] （同期）1 台目でワークスペースを削除 → 2 台目でも消える（2 台目でそれを開いていたウィンドウは未割り当てになり、タブは残る）。2 台目でそのワークスペースを先に編集していた場合は消えず、1 台目に戻る
-- [ ] （同期）接続フォルダのあるワークスペースが 2 台目に届いたとき、Chrome のブックマーク同期で同じパスのフォルダがあれば接続済みになる。無ければ未接続のままで、後からフォルダが届くと次の同期で接続される
-- [ ] （同期）「今すぐ同期」でトーストが出て「最後の同期」が更新される。OFF にすると「同期は OFF です」と同期ストレージの使用量が出て、ON に戻すと取り込む。「同期データを削除」（2 回押し）で使用量が 0 になり OFF になる。もう 1 台は次の同期で自分の内容を書き戻し、ワークスペースが消えない
-- [ ] （同期）タブの多いワークスペースを増やして使用量を 100 KB 近くにすると、「容量に収めるため、次のワークスペースはタブを同期していません」に古いワークスペースが並び、メニューの「同期」に件数のバッジが付く。そのワークスペースの名前を変えると反映されるがタブは相手に届かない。相手側の既存のタブは消えない
-- [ ] （同期）同期ストレージの変化を取り込んだ後、ツールバーアイコン・ワークスペースタブ・自動クローズの設定が新しい内容になっている。エクスポート → インポートしても「同期する」の ON / OFF は変わらない
-- [ ] （休止）A を開いたウィンドウで管理パネルの検索ボックスから B を Ctrl+Enter（または一覧の行の ⏸、詳細の「⏸ 休止して開く」）→ A のタブが閉じずに折りたたんだグループ「⏸ 絵文字 A」（A の色）になり、B のタブが開く。一覧の A に「休止」バッジ、詳細に「このウィンドウで休止中」と「再開」「休止を終了」、タブ一覧に休止中のタブが出る。A の固定タブは固定が外れてグループに入る。B の保存タブに A のタブは混ざらず、A の保存タブは固定・グループ・前面が休止前のまま
-- [ ] （休止）休止中の A を行クリック（Enter）→ グループが解けて固定・元のグループ・前面タブが戻り、B のタブは閉じて保存される。Ctrl+Enter なら B が休止される。A のフォームに入力していた内容やスクロール位置が残っている
-- [ ] （休止）休止中の A の「休止を終了」→ グループのタブが閉じ、A の保存タブは閉じる直前の内容。休止グループのタブを手で全部閉じても「休止」バッジが消える
-- [ ] （休止）休止中の A を ⧉ → 新しいウィンドウにタブが移って（読み込み直さずに）開き、固定・元のグループが戻る。別ウィンドウで休止中（「別・休止」）の A を別のウィンドウから行クリック → グループごとそのウィンドウへ移って再開
-- [ ] （休止）休止中に ✎ で名前・色を変えるとグループのタイトル・色が変わる。A を削除するとグループは「⏸」無しの普通のグループになる
-- [ ] （休止）Cookie の分離が働く状態で、セッションが違うワークスペースへ Ctrl+Enter → エラーのトーストが出て何も変わらない。Enter（閉じる切替）では、そのウィンドウの休止グループも閉じる（保存タブは残る）。＋ の作成ダイアログで別のセッションを選ぶと「休止して残す」のチェックは出ない
-- [ ] （休止）休止中のまま Chrome を再起動 → 「⏸ …」のグループが残っていて、一覧に「休止」バッジが付き、行クリックで再開できる（固定・元のグループは戻らない）。拡張の再読み込みでも同じ
-- [ ] （休止）検索ボックスの ↑↓ で選んで Shift+Enter → 新しいウィンドウ、Ctrl+Enter → 休止して切替。クイックパレット（`Alt+K`）でも Ctrl+Enter で休止して切替。ブックマーク・履歴の行では Ctrl+Enter は Enter と同じ
-- [ ] （休止）設定・管理の「表示・操作」で既定の切替方法を「休止して切替」にする → 管理パネルのヒントが「Enter ワークスペース→休止して切替 / Ctrl+Enter ワークスペース→切替」に変わり、検索ボックスの Enter・行クリック・番号キーで今のタブが休止グループになり、Ctrl+Enter は閉じる切替になる。「新しいウィンドウで開く」にすると Enter / 行クリックで新しいウィンドウが開き、Shift+Enter が閉じる切替になる。クイックパレットの Enter も同じ。「切替」に戻すと従来どおり
-- [ ] （タブ移動）A のウィンドウで管理パネルの「開いているタブ」の行にマウスを乗せるとチェックボックスが出る。2 つチェックすると一覧の上に「2 件を選択 … 移動先 [B] 移動」のバーが出て、全行にチェックボックスが見える（Shift+クリックで範囲、「すべて選択」「解除」）。選んでいる間は行のタイトルをクリックしてもタブへ移動せず、チェックが切り替わる。B が開いていない状態で「移動」→ タブが閉じて A の保存タブから消え、B の保存済みタブの末尾に加わる（トースト「2 個のタブを「B」の保存タブに加えました」）。A のタブを全部移しても A のウィンドウは閉じず、空白タブが残る
-- [ ] （タブ移動）B を別ウィンドウで開いた状態で移す → B のウィンドウの末尾にタブが移り（読み込み直さない。固定タブは固定のまま）、A と B の保存タブが追従する。B が休止中なら「⏸ B」のグループに加わる（固定は外れ、再開で戻る）。休止グループのタブをチェックして移すこともできる。移動先の選択肢に「（このウィンドウ）（別ウィンドウ）（休止中）」が付く
-- [ ] （タブ移動）開いていない C を選び「保存済みのタブ」をチェック → 開いている B へ移すと B のウィンドウに前面にならずに開き（遅延読み込みなら読み込まない）、C の保存タブから消える。移動先の無い（ワークスペースが 1 つだけの）ときは「他のワークスペースがありません」
-- [ ] （よく開くタブ）管理パネルでワークスペースを選ぶと、ブックマーク一覧の下に「よく開くタブ」の見出しと、空のときは「ドラッグ＆ドロップすると登録されます」の案内が出る。開いているタブの行を案内（または見出し）へドラッグ＆ドロップ → 行が増えて見出しが「よく開くタブ（1）」になり、トースト「「名前」のよく開くタブに登録しました」。同じタブをもう一度落とすと「既に登録されています」。保存済みタブの行・ブックマークの行からも登録できる
-- [ ] （よく開くタブ）置き場の行をクリック → そのページがこのウィンドウで開いてパネルが閉じる（既に開いていればそのタブへ移るだけ）。行にマウスを乗せて × → 外れる。行をドラッグして他の行の上半分 / 下半分に落とすと青い線が出て並び替わる。置き場の行をブックマーク一覧へ落とすとブックマークに登録される
-- [ ] （よく開くタブ）検索ボックスに置き場のタイトルや URL を打つと「よく開くタブ（N）」の節にワークスペース名付きで出て、Enter でそのワークスペースのウィンドウ（なければこのウィンドウ）に開く。クイックパレット（`Alt+K`）でも「開いているタブ」の下に「よく開くタブ」が出る（置き場が空なら出ない）。エクスポート → インポート、同期で他の端末にも置き場が届く
-- [ ] （休止）左下のボタンは「⚙ 設定・管理」「💤 メモリ解放」「? 使い方」。「💤 メモリ解放」で非アクティブなタブが解放され、タブ一覧に「メモリ解放済み」と出る（休止グループは作られない）
-- [ ] （ローカルファイル #55）chrome://extensions で seiton の「ファイルの URL へのアクセスを許可する」が OFF の状態で、ワークスペース A のウィンドウに `file://` のタブ（ローカルの HTML や PDF）を開き B に切り替える → そのタブは閉じずに B のタブと並んで残り、A の保存済みタブには入らない。管理パネルの「開いているタブ」にヒントが出て、行の副題が「ローカルファイル（切替で閉じずに残す）」になる。そのタブだけをチェックして別のワークスペースへ「移動」するとエラーで断られる。設定・管理の「表示・操作」に「（アクセス許可なし）」と案内が出て、ボタンで拡張の詳細ページが開く
-- [ ] （ローカルファイル #55）許可を ON にして設定・管理のタブに戻ると「（アクセス許可あり）」に変わる。A で `file://` のタブを開いて B に切り替え → 閉じられ、A の保存済みタブに入る。A に戻すとそのタブが開き直される
+Automated tests cover pure logic and Chrome API fakes. Run relevant scenarios in real Chrome and mark unperformed cases **Not verified** in the PR. The linked Japanese checklist preserves the detailed original scenarios.
+
+## Language
+
+- [ ] Fresh install with Japanese browser language selects Japanese automatically; English and unsupported browser languages select English.
+- [ ] Settings & management → Display & behavior → Language switches between Automatic (browser language), English, and 日本語, saves immediately, and survives extension/browser restart.
+- [ ] Open panel, palette, settings, workspace tab, and guide together; changing language updates their headings, controls, tooltips, dialogs, empty states, toasts, and dynamic counts without losing user data.
+- [ ] Create, edit, search, switch, park, resume, move tabs, manage sessions, and show permission/error messages in both languages. No missing translation keys or mixed-language extension text appears.
+- [ ] User-entered workspace/session names and page/bookmark titles remain unchanged. Check narrow layouts and long English labels for clipping and keyboard access.
+- [ ] Export/import and sync keep a valid language preference. Older data without a language setting uses automatic selection.
+- [ ] In English, the three buttons at the bottom left of the manager (⚙ Settings / 💤 Free memory / ? Guide) are fully visible at the default panel size and wrap onto a second row instead of being clipped when the panel is narrow. Workspace rows show a reasonable part of long names; ⏸ / ⧉ appear only on hover or on the selected row, and the row for the current window has no ⧉.
+
+## Workspaces and navigation
+
+- [ ] Create A, open multiple tabs, create/switch to B, then return to A. Restore pinned state, group names/colors, active tab, and lazy loading without flashing other tabs into the foreground.
+- [ ] Creation supports icons (preset/custom/none), session choice, new/existing/no folder, and adopting tabs from an unassigned window. Linking an existing folder does not create another.
+- [ ] Panel shows workspace/bookmark/tab columns without stray null values. Row click switches the target window, closes the panel after completion, and never switches the panel's own window.
+- [ ] Select an already-open workspace to focus its existing window. Close/reopen a workspace window without losing its snapshot.
+- [ ] Restart Chrome with previous-session restoration on/off; reload the extension; window associations and saved tabs survive correctly.
+- [ ] Drag workspace rows before/after others, including adjacent no-op drops. Numbers update and dragging does not trigger switching.
+- [ ] Number keys 1–9/0 switch; Shift opens a new window. Inputs, editing, dialogs, and nonempty search accept digits normally; selecting the active number is harmless.
+- [ ] Palette searches tabs/bookmarks/workspaces; > or Tab restricts to workspaces. Arrow/Enter, Shift+Enter, Ctrl/⌘+Enter, Delete, and customized shortcuts behave correctly.
+- [ ] Default normal/park/new-window modes apply to Enter, row click, and numbers. Ctrl/Shift modifiers and displayed hints correctly swap behavior.
+
+## Panel and settings
+
+- [ ] Alt+Shift+K toggles one popup centered over the target window at about 85% size; invoking from another window replaces it. Palette ☰ and guide open the same panel.
+- [ ] Focus loss closes the panel; interacting with dialogs/selects/icon fields does not. Esc dismisses dialog/editor/search before closing the panel.
+- [ ] Navigation focuses the destination and closes the panel; tab close and memory release keep it open. Search focuses initially and / refocuses it.
+- [ ] Settings sections, direct # links, narrow-screen menus, existing settings-tab reuse, and workspace/session/closed-tab management work.
+- [ ] Inline name/session/auto-close edits, color/icon changes, drag ordering, select-all, and bulk changes persist without switching workspaces. Delete requires confirmation and preserves bookmark folders/open tabs.
+
+## Bookmarks and indicators
+
+- [ ] Ctrl+D and Alt+Shift+D use the linked folder; bookmark-manager/sync-created bookmarks are not moved. Toolbar +/= /! badge states and error tooltip are correct.
+- [ ] Drag a tab onto bookmarks/workspace rows; save once per URL. Deleting linked folders removes the link; deleting workspaces leaves bookmarks intact.
+- [ ] Toolbar icon/color/initial/session tooltip remains correct per window through switching, edits, navigation, tab creation, and bookmark badges. Unassigned/panel windows use default icons.
+- [ ] Workspace label sits after pinned tabs on the left. Its page navigates workspaces/bookmarks and opens the panel. Edits/switches update it; it never appears in normal lists or saved snapshots.
+- [ ] Closing/moving/ungrouping/recoloring its tab/group repairs it; disabling removes it in all windows. Unassign/delete removes it except when it is the last tab. Restart reuses it without duplication or emptying saved user tabs.
+
+## Permissions and sessions
+
+- [ ] History is absent until explicitly allowed through search. Grant shows same-query results; revoke in settings removes access. Search/open/escape behavior remains correct; no required history permission warning at installation.
+- [ ] Adding a second session shows storage/deletion consent followed by optional Chrome cookies/all-sites permission. Cancel/deny adds nothing; allow creates an initially logged-out session.
+- [ ] Switch between two sessions logged into different accounts, then return: cookies and active-session status/count/time labels follow correctly. Windows stay alive, target login is correct, and restart immediately after switching keeps it.
+- [ ] Editing an open workspace's session swaps cookies and reloads its live tabs; deleting the current session swaps to the destination first. Saved-cookie deletion requires confirmation and leaves active cookies intact.
+- [ ] DevTools local cookieJars contain encrypted enc/iv/data fields with no plaintext names/values; IndexedDB seiton-vault holds a key. Legacy plaintext jars migrate on reload and still restore correctly.
+- [ ] Import does not remove saved cookies or permissions. Test revoked cookie permission on existing multiple-session data.
+
+## Memory and auto-close
+
+- [ ] Lazy loading restores only the active page initially. Manual and timed memory release discard eligible inactive tabs, skip pinned/audible tabs, and do not create parked groups.
+- [ ] Enable auto-close at 15 minutes and wait 15–30 minutes. Eligible tabs close; active/pinned/audible/extension tabs and the final tab remain. Test inherit/disabled/enabled-duration workspace overrides.
+- [ ] Closed-tab count badges, date groups, title/URL search, reopening into the correct window, failed reopen retention, single delete, and double-confirmed delete-all work, with a 500-entry cap.
+- [ ] Add/edit/delete URL exclusions; empty/duplicate input is rejected. 🛡 page/site registration and excluded badge removal update settings immediately. Excluded tabs remain after the threshold, and a window with only excluded tabs remains open.
+- [ ] Export/import restores configuration and exclusions.
+
+## Sync (two signed-in browsers/profiles)
+
+- [ ] Enable extension sync on both devices. Workspaces, sessions, tabs, shelf, settings, and order arrive; usage/last-sync display updates; pre-existing data on both devices survives.
+- [ ] Rename/recolor/reorder/add sessions/change settings and tabs; changes arrive after debounce. Delete propagates unless the other device independently edited the workspace; live tabs are not closed.
+- [ ] Folder paths reconnect existing browser-synced bookmarks; missing paths stay pending and reconnect later without creating duplicate folders.
+- [ ] Sync-now updates status; disable/enable works. Delete-sync-data empties storage and disables this device; another enabled device republishes its local data without losing workspaces.
+- [ ] Fill storage near 100 KB: old workspaces show omitted-tab warnings/badges; metadata and shelf still sync, and remote existing tabs remain. Unsupported document versions show an error.
+- [ ] Incoming settings refresh alarms, toolbar icons, and workspace tabs. Export/import preserves this device's sync-enabled setting.
+
+## Parking
+
+- [ ] Park A while opening B: collapsed ⏸ group keeps live form/scroll state; pinned tabs enter unpinned, snapshots retain original metadata, and badges/details show parking.
+- [ ] Resume A by click/Enter/Ctrl+Enter; groups/pins/active tab restore without reload. B closes or parks according to the selected/default action.
+- [ ] End parking or close all group tabs: save the final snapshot and remove parking indicators.
+- [ ] Resume parked A from another window or with ⧉: move live tabs and preserve page state. Rename/color updates the group; delete workspace makes it ordinary.
+- [ ] Cross-cookie-session parking is rejected without changes. Normal cross-session switching closes/saves parked groups; creation hides unavailable parking choice.
+- [ ] Restart with a parked group: recover parking from its title and resume (original pins/groups are not recoverable). Reload extension as well.
+
+## Tab moves and frequently opened shelf
+
+- [ ] Select individual/range/all tabs; row clicks toggle selection while selected. Closed destinations receive snapshots, open destinations receive live tabs without reload, parked destinations receive group tabs. Source windows remain alive when emptied.
+- [ ] Move saved tabs into an open destination in the background with lazy loading. Source snapshots update. No-destination state is explained.
+- [ ] Drag tabs/saved tabs/bookmarks to the shelf; duplicate URLs are rejected. Click opens/focuses, × removes, drag reorders, and dragging into bookmarks registers the page.
+- [ ] Shelf search/palette results include workspace context; opening uses its existing window if available. Shelf survives export/import and sync.
+
+## Local files
+
+- [ ] With file-URL access off, switch away from a workspace containing file:// tabs: they remain open and are not saved; hints explain this. Moving them is rejected; settings opens extension details.
+- [ ] Enable file-URL access, return to settings, and confirm permission status updates. File tabs now save, close on switch, and restore normally.

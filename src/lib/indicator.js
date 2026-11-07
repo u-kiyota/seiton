@@ -3,6 +3,7 @@
 // Chrome はメインフレームのナビゲーションでタブ単位の値を消すことがあるため、タブの作成・遷移のたびに再適用する。
 // 状態は書き換えない（読み取りのみ）ので serialize() の外から呼んでよい。
 import { indicatorLabel } from './core.js';
+import { t } from './i18n.js';
 import { loadState, getBindings } from './store.js';
 import { drawIndicatorIcon } from './draw.js';
 
@@ -24,7 +25,7 @@ function defaultIconPath() {
 }
 
 function defaultTitle() {
-  return chrome.runtime.getManifest().action?.default_title || 'seiton';
+  return t('seiton (クイックパレット)');
 }
 
 /** label のアイコン画像（16 / 32）。描けない環境では null（呼び出し側は既定アイコンにする）。成功時だけキャッシュする */
@@ -52,20 +53,26 @@ function resolveIndicator(win, state, bindings) {
   return { title: label.title, images: ws ? iconImages(label) : null };
 }
 
-/** 1 タブへ適用。タブが閉じられた直後などの失敗（No tab with id）は無視する */
+/**
+ * 1 タブへ適用。タブが閉じられた直後などの失敗（No tab with id）は無視する。
+ * setIcon は Promise 形式で catch しても「Unchecked runtime.lastError」がコンソールに出ることがあるため、
+ * コールバック形式にして lastError を読み捨てる
+ */
 async function applyToTab(tabId, { title, images }) {
-  const run = (fn) => {
+  const run = (fn) => new Promise((resolve) => {
+    const done = () => {
+      void chrome.runtime.lastError;
+      resolve();
+    };
     try {
-      return Promise.resolve(fn()).catch(() => {});
+      fn(done);
     } catch {
-      return Promise.resolve();
+      resolve();
     }
-  };
+  });
   await Promise.all([
-    run(() => (images
-      ? chrome.action.setIcon({ tabId, imageData: images })
-      : chrome.action.setIcon({ tabId, path: defaultIconPath() }))),
-    run(() => chrome.action.setTitle({ tabId, title })),
+    run((cb) => chrome.action.setIcon(images ? { tabId, imageData: images } : { tabId, path: defaultIconPath() }, cb)),
+    run((cb) => chrome.action.setTitle({ tabId, title }, cb)),
   ]);
 }
 

@@ -1,4 +1,26 @@
 {
-  "extName": { "message": "seiton" },
-  "extDescription": { "message": "タブとブックマークをワークスペース単位で整理・切り替え。ログイン状態のセッション切替、ブラウザ間同期、使っていないタブの自動クローズにも対応。" }
+  "extName": {
+    "message": "seiton"
+  },
+  "extDescription": {
+    "message": "タブとブックマークをワークスペース単位で整理・切り替え。ログイン状態のセッション切替、ブラウザ間同期、使っていないタブの自動クローズにも対応。"
+  },
+  "actionTitle": {
+    "message": "seiton (クイックパレット)"
+  },
+  "commandPalette": {
+    "message": "クイックパレット（現在のタブ / ブックマーク / ワークスペース切替）を開く"
+  },
+  "commandManager": {
+    "message": "ワークスペース管理パネルを開く / 閉じる（一時的なウィンドウ）"
+  },
+  "commandSaveBookmark": {
+    "message": "現在のタブをワークスペースのブックマークフォルダに保存"
+  },
+  "commandNextWorkspace": {
+    "message": "同じセッション内の次のワークスペースへ切り替え"
+  },
+  "commandPrevWorkspace": {
+    "message": "同じセッション内の前のワークスペースへ切り替え"
+  }
 }

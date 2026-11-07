@@ -1,5 +1,6 @@
 // サービスワーカー: Chrome のイベントを受けて状態を更新する唯一の書き手。
 // UI（管理パネル / ポップアップ / オプション）は runtime.sendMessage 経由でここに依頼する。
+import { t, normalizeLanguage, setLanguage } from './lib/i18n.js';
 import {
   shouldRouteBookmark, neighborWorkspace, tabUrl, normalizeState, isManagerUrl, normalizeAutoClose, normalizeSwitchMode,
   isWorkspaceTabUrl, workspaceTabEnabled, normalizeExcludePattern, normalizeExcludePatterns, shelfAdd, shelfRemove, shelfMove,
@@ -150,7 +151,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.state) {
     const { oldValue, newValue } = changes.state;
     // state はタブの変化のたびに保存されるので、名前・色・アイコン・セッション名が変わったときだけ全体を再適用する
-    const labelChanged = indicatorSignature(oldValue) !== indicatorSignature(newValue);
+    setLanguage(newValue?.settings?.language);
+    const labelChanged = indicatorSignature(oldValue) !== indicatorSignature(newValue)
+      || normalizeLanguage(oldValue?.settings?.language) !== normalizeLanguage(newValue?.settings?.language);
     if (labelChanged) scheduleAllIndicators();
     // ワークスペースタブ: グループのタイトル・色の更新、設定の ON / OFF（OFF なら全ウィンドウで閉じる）
     if (labelChanged || workspaceTabEnabled(oldValue) !== workspaceTabEnabled(newValue)) scheduleAllWorkspaceTabs();
@@ -310,12 +313,12 @@ async function saveCurrentTab(windowId) {
   if (windowId === undefined) windowId = (await chrome.windows.getLastFocused()).id;
   const state = await loadState();
   const ws = state.workspaces[(await getBindings())[windowId]];
-  if (!ws) throw new Error('このウィンドウはワークスペースに割り当てられていません');
-  if (!ws.bookmarkFolderId) throw new Error(`「${ws.name}」にブックマークフォルダが接続されていません`);
+  if (!ws) throw new Error(t('このウィンドウはワークスペースに割り当てられていません'));
+  if (!ws.bookmarkFolderId) throw new Error(t('「{name}」にブックマークフォルダが接続されていません', { name: ws.name }));
   const [active] = await chrome.tabs.query({ windowId, active: true });
-  if (!active) throw new Error('アクティブなタブがありません');
+  if (!active) throw new Error(t('アクティブなタブがありません'));
   const res = await saveToFolder(ws.bookmarkFolderId, { url: tabUrl(active), title: active.title });
-  flashBadge(active.id, res.duplicated ? '=' : '+', res.duplicated ? '保存済みです' : 'ブックマークに保存しました');
+  flashBadge(active.id, res.duplicated ? '=' : '+', res.duplicated ? t('保存済みです') : t('ブックマークに保存しました'));
   return res;
 }
 
@@ -428,7 +431,7 @@ const mutating = {
   createFolderFor: async ({ workspaceId }) => {
     const state = await loadState();
     const ws = state.workspaces[workspaceId];
-    if (!ws) throw new Error('ワークスペースが見つかりません');
+    if (!ws) throw new Error(t('ワークスペースが見つかりません'));
     const folderId = await createFolderForWorkspace(ws.name, state.settings);
     await updateWorkspace(workspaceId, { bookmarkFolderId: folderId, bookmarkFolderManaged: true });
     return { folderId };
@@ -437,12 +440,12 @@ const mutating = {
   addBookmarkToWorkspace: async ({ workspaceId, url, title }) => {
     const state = await loadState();
     const ws = state.workspaces[workspaceId];
-    if (!ws) throw new Error('ワークスペースが見つかりません');
-    if (!ws.bookmarkFolderId) throw new Error('このワークスペースにはブックマークフォルダが接続されていません');
-    if (!isBookmarkableUrl(url)) throw new Error('このページはブックマークに保存できません');
+    if (!ws) throw new Error(t('ワークスペースが見つかりません'));
+    if (!ws.bookmarkFolderId) throw new Error(t('このワークスペースにはブックマークフォルダが接続されていません'));
+    if (!isBookmarkableUrl(url)) throw new Error(t('このページはブックマークに保存できません'));
     // サブフォルダも含めて同じ URL があれば作らない（一覧はサブフォルダも平坦化して表示しているため）
     const existing = await listFolderBookmarks(ws.bookmarkFolderId);
-    if (!existing) throw new Error(`「${ws.name}」の接続フォルダが見つかりません`);
+    if (!existing) throw new Error(t('「{name}」の接続フォルダが見つかりません', { name: ws.name }));
     const dup = findBookmarkByUrl(existing.items, url);
     if (dup) return { created: false, bookmarkId: dup.id, workspaceName: ws.name };
     const res = await saveToFolder(ws.bookmarkFolderId, { url, title });
@@ -451,9 +454,9 @@ const mutating = {
   // よく開くタブ置き場（issue #34）: 追加（同じ URL は足さない）/ 削除 / 並び替え
   addShelfItem: ({ workspaceId, url, title }) => mutate((state) => {
     const ws = state.workspaces[workspaceId];
-    if (!ws) throw new Error('ワークスペースが見つかりません');
+    if (!ws) throw new Error(t('ワークスペースが見つかりません'));
     const r = shelfAdd(ws.shelf, { url, title });
-    if (!r.added && !isBookmarkableUrl(url)) throw new Error('このページは置き場に登録できません');
+    if (!r.added && !isBookmarkableUrl(url)) throw new Error(t('このページは置き場に登録できません'));
     if (r.added) {
       ws.shelf = r.list;
       ws.updatedAt = Date.now();
@@ -462,7 +465,7 @@ const mutating = {
   }),
   removeShelfItem: ({ workspaceId, url }) => mutate((state) => {
     const ws = state.workspaces[workspaceId];
-    if (!ws) throw new Error('ワークスペースが見つかりません');
+    if (!ws) throw new Error(t('ワークスペースが見つかりません'));
     const r = shelfRemove(ws.shelf, url);
     if (r.removed) {
       ws.shelf = r.list;
@@ -472,7 +475,7 @@ const mutating = {
   }),
   reorderShelf: ({ workspaceId, url, toIndex }) => mutate((state) => {
     const ws = state.workspaces[workspaceId];
-    if (!ws) throw new Error('ワークスペースが見つかりません');
+    if (!ws) throw new Error(t('ワークスペースが見つかりません'));
     ws.shelf = shelfMove(ws.shelf, url, toIndex);
     ws.updatedAt = Date.now();
   }),
@@ -492,6 +495,7 @@ const mutating = {
       state.settings.autoDiscardMinutes = Math.max(0, Number(state.settings.autoDiscardMinutes) || 0);
       state.settings.workspaceTab = state.settings.workspaceTab !== false;
       state.settings.switchMode = normalizeSwitchMode(state.settings.switchMode);
+      state.settings.language = normalizeLanguage(state.settings.language);
       // 一部の項目だけの patch も受け付け、不正な日数（NaN・負など）は今の値を保つ
       if (patch && 'autoClose' in patch) {
         state.settings.autoClose = normalizeAutoClose({ ...prevAutoClose, ...patch.autoClose }, prevAutoClose);
@@ -507,7 +511,7 @@ const mutating = {
   // 自動クローズの除外 URL を 1 件追加（管理パネルの「自動クローズから除外」・設定画面の「追加」）。既にあれば added: false
   addAutoCloseExclude: ({ pattern }) => mutate((state) => {
     const p = normalizeExcludePattern(pattern);
-    if (!p) throw new Error('除外する URL を入力してください');
+    if (!p) throw new Error(t('除外する URL を入力してください'));
     const list = state.settings.autoCloseExclude;
     const added = !list.includes(p);
     if (added) {
@@ -530,7 +534,7 @@ const mutating = {
    * sessionId: 権限を求めたウィンドウのワークスペースのセッション。「今の Cookie のセッション」が未定ならこれにする
    */
   grantCookieIsolation: async ({ sessionId }) => {
-    if (!(await hasCookiePermission())) throw new Error('Cookie を読み書きする権限が許可されていません');
+    if (!(await hasCookiePermission())) throw new Error(t('Cookie を読み書きする権限が許可されていません'));
     return adoptCookieSession(await loadState(), sessionId);
   },
   // 退避した Cookie をすべて削除（今 Chrome に入っている Cookie は消さない）
